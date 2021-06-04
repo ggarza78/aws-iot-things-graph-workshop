@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "This template will setup the s3 bucket needed for storing the images"
+Parameters:
+  PrefixName:
+    Type: String
+    MinLength: 1
+    Default: "things-graph-workshop"
+    Description: "The prefix we will use for the resources created in this project"
+
+Resources:
+################################################################
+#                        S3 Bucket SECTION                     #
+# This Section contains all the S3 related resources           #
+################################################################
+
+  Images:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName :
+        Fn::Join: 
+          - '-'
+          - - Ref: PrefixName
+            - 'images'
+            - !Ref 'AWS::AccountId'
+            - !Ref 'AWS::Region'
+      LifecycleConfiguration:
+        Rules:
+        - Id: ExpirationRule
+          Status: Enabled
+          ExpirationInDays: '30'
+      NotificationConfiguration :
+        LambdaConfigurations:
+          - Event:  s3:ObjectCreated:*
+            Function:
+              !Join
+                - ''
+                - - Fn::ImportValue:
+                      !Sub '${PrefixName}-s3-image-bucket-arn'

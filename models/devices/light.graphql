@@ -1,0 +1,41 @@
+{
+
+type Toggle @actionType(id:"urn:tdm:regionName/acctID/default:action:Toggle") {
+    gpioPort: Int @property(id: "urn:tdm:aws:Property:Int32")
+}
+
+# Light capability.
+type LightCapability @capabilityType(id: "urn:tdm:regionName/acctID/default:capability:LightCapability") {
+
+    toggleLight: Toggle @action(id: "urn:tdm:regionName/acctID/default:action:Toggle")
+}
+
+# Light device model.
+type TGWorkshopLightModel @deviceModel(id:"urn:tdm:regionName/acctID/default:deviceModel:TGWorkshopLightModel",
+capability: "urn:tdm:regionName/acctID/default:capability:LightCapability"){ignore:void}
+
+# Device definition for the Light.
+# In my implementation, this device uses a Java driver to connect to AWS IoT Greengrass.
+query TGWorkshopLight @device(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopLight",
+    deviceModel: "urn:tdm:regionName/acctID/default:deviceModel:TGWorkshopLightModel") {
+        MQTT {
+            LightCapability(id: "urn:tdm:regionName/acctID/default:capability:LightCapability") {
+                Action(name: "toggleLight") {
+                    params {
+                        param(name:"gpioPort", property:"urn:tdm:aws:Property:Int32")
+                    }
+                    Publish {
+
+                        Request(topic: "things-graph-workshop/lights") {
+                            params{
+                                param(name:"gpioPort", property:"urn:tdm:aws:Property:Int32", value:"${gpioPort.value}")
+                                param(name:"lightState", property:"urn:tdm:aws:Property:Int32", value: 2 )
+                            }
+                        }
+
+                    }
+                }
+            }
+        }
+    }
+  }

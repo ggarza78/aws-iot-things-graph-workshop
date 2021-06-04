@@ -1,0 +1,56 @@
+{
+# Defines the structure of the identifyGaugeTypeAction response.
+type IoTResponseStructure @stateType(id: "urn:tdm:regionName/acctID/default:State:identifyGaugeTypeResponseStructure") {
+    gaugeType : String @property(id: "urn:tdm:aws:Property:String"),
+    gaugeID : String @property(id: "urn:tdm:aws:Property:String"),
+    min_angle : Int @property(id: "urn:tdm:aws:property:Int32"),
+    max_angle : Int @property(id: "urn:tdm:aws:property:Int32"),
+    min_value : Int @property(id: "urn:tdm:aws:property:Int32"),
+    max_value : Int @property(id: "urn:tdm:aws:property:Int32"),
+    units : String @property(id: "urn:tdm:aws:property:String"),
+    threshold: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    errorCode: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    errorMessage : String @property(id: "urn:tdm:aws:Property:String")
+}
+
+# Property representing the identifyGaugeTypeResponseStructure state. 
+type identifyGaugeTypeResponse @propertyType(id: "urn:tdm:regionName/acctID/default:property:identifyGaugeTypeResponse" 
+    instanceOf: "urn:tdm:regionName/acctID/default:State:identifyGaugeTypeResponseStructure") {ignore:void}
+
+# The identifyGaugeTypeAction identifies the type of gauge from the S3 image
+type identifyGaugeTypeAction @actionType(id: "urn:tdm:regionName/acctID/default:action:identifyGaugeTypeAction") {
+    s3ObjectKey : String @property(id: "urn:tdm:aws:property:String"),
+    s3BucketName : String @property(id: "urn:tdm:aws:property:String"),
+    return : identifyGaugeTypeResponse @property(id: "urn:tdm:regionName/acctID/default:property:identifyGaugeTypeResponse")
+}
+
+# The identifyGaugeType capability.
+type identifyGaugeTypeCapability @capabilityType(id: "urn:tdm:regionName/acctID/default:capability:identifyGaugeTypeCapability") {
+    identifyGaugeType : identifyGaugeTypeAction @action(id: "urn:tdm:regionName/acctID/default:action:identifyGaugeTypeAction")
+}
+
+# Service definition for identifyGaugeType. It's implemented as an AWS IoT Greengrass Lambda function.
+query identifyGaugeType @service(id: "urn:tdm:regionName/acctID/default:Service:TGWorkshopIdentifyGaugeTypeLambda") {
+    AwsLambda {
+            identifyGaugeTypeCapability(id: "urn:tdm:regionName/acctID/default:capability:identifyGaugeTypeCapability") {
+                Action(name: "identifyGaugeType") {
+                    params {
+                        param(name: "s3ObjectKey", property:"urn:tdm:aws:property:String"),
+                        param(name: "s3BucketName", property:"urn:tdm:aws:property:String")
+                    }
+                    InvokeGreengrassLambda {
+                        Request(arn: "$macro(arn:aws:lambda:${systemConfig.awsRegion}:${systemConfig.awsAccountId}:function:things-graph-workshop-identify-gauge-type:Latest)") {
+                            params {
+                                param(name: "s3ObjectKey", property:"urn:tdm:aws:property:String", value: "${s3ObjectKey.value}"),
+                                param(name: "s3BucketName", property:"urn:tdm:aws:property:String", value: "${s3BucketName.value}")
+                            }
+                        }
+                        Response {
+                            responsePayload(property: "urn:tdm:regionName/acctID/default:property:identifyGaugeTypeResponse")
+                        }
+                    }
+                }
+            }
+        }
+}
+}

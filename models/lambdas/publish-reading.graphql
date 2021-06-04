@@ -1,0 +1,59 @@
+{
+# The publishReadingAction publishes the message to the selected service and topic
+type publishReadingAction @actionType(id: "urn:tdm:regionName/acctID/default:action:publishReadingAction") {
+    service : String @property(id: "urn:tdm:aws:property:String"),
+    topic : String @property(id: "urn:tdm:aws:property:String"),
+    s3ObjectKey : String @property(id: "urn:tdm:aws:property:String"),
+    s3BucketName : String @property(id: "urn:tdm:aws:property:String"),
+    gaugeType : String @property(id: "urn:tdm:aws:property:String"),
+    gaugeID : String @property(id: "urn:tdm:aws:property:String"),
+    gaugeReading: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    timeStamp: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    errorCode: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    errorMessage : String @property(id: "urn:tdm:aws:Property:String")
+}
+
+# The publishReading capability.
+type publishReadingCapability @capabilityType(id: "urn:tdm:regionName/acctID/default:capability:publishReadingCapability") {
+    publishReading : publishReadingAction @action(id: "urn:tdm:regionName/acctID/default:action:publishReadingAction")
+}
+
+# Service definition for publish Reading. It's implemented as an AWS IoT Greengrass Lambda function.
+query publishReading @service(id: "urn:tdm:regionName/acctID/default:Service:TGWorkshopPublishReadingLambda") {
+    AwsLambda {
+            publishReadingCapability(id: "urn:tdm:regionName/acctID/default:capability:publishReadingCapability") {
+                Action(name: "publishReading") {
+                    params {
+                        param(name: "service", property:"urn:tdm:aws:property:String"),
+                        param(name: "topic", property:"urn:tdm:aws:property:String"),
+                            param(name: "s3ObjectKey", property:"urn:tdm:aws:property:String"),
+                            param(name: "s3BucketName", property:"urn:tdm:aws:property:String"),
+                            param(name: "gaugeType", property:"urn:tdm:aws:property:String"),
+                            param(name: "gaugeID", property:"urn:tdm:aws:property:String"),
+                            param(name: "gaugeReading", property:"urn:tdm:aws:property:Int32"),
+                            param(name: "timeStamp", property:"urn:tdm:aws:property:Int32"),
+                            param(name: "errorCode", property:"urn:tdm:aws:property:Int32"),
+                            param(name: "errorMessage", property:"urn:tdm:aws:property:String")
+                    }
+                    InvokeGreengrassLambda {
+                        Request(arn: "$macro(arn:aws:lambda:${systemConfig.awsRegion}:${systemConfig.awsAccountId}:function:things-graph-workshop-publish-reading:Latest)") {
+                            params {
+                                param(name: "service", property:"urn:tdm:aws:property:String", value: "${service.value}"),
+                                param(name: "topic", property:"urn:tdm:aws:property:String", value: "${topic.value}"),
+                                param(name: "s3ObjectKey", property:"urn:tdm:aws:property:String", value: "${s3ObjectKey.value}"),
+                                param(name: "s3BucketName", property:"urn:tdm:aws:property:String", value: "${s3BucketName.value}"),
+                                param(name: "gaugeType", property:"urn:tdm:aws:property:String", value: "${gaugeType.value}"),
+                                param(name: "gaugeID", property:"urn:tdm:aws:property:String", value: "${gaugeID.value}"),
+                                param(name: "gaugeReading", property:"urn:tdm:aws:property:Int32", value: "${gaugeReading.value}"),
+                                param(name: "timeStamp", property:"urn:tdm:aws:property:Int32", value: "${timeStamp.value}"),
+                                param(name: "errorCode", property:"urn:tdm:aws:property:Int32", value: "${errorCode.value}"),
+                                param(name: "errorMessage", property:"urn:tdm:aws:property:String", value: "${errorMessage.value}")
+
+                            }
+                        }
+                    }
+                }
+            }
+        }
+}
+}

@@ -1,0 +1,49 @@
+{
+# Amazon Sns Publish Message action. This action Publishes a single message to SNS.
+# The response will be in Json format
+type PublishMessage @actionType(id: "urn:tdm:regionName/acctID/default:action:PublishMessage") {
+    topicArn: String @property(id: "urn:tdm:aws:Property:String"),
+    subject: String @property(id: "urn:tdm:aws:Property:String"),
+    message: String @property(id: "urn:tdm:aws:Property:String"),
+    return: Json @property(id: "urn:tdm:aws:Property:Json")
+}
+
+
+# Amazon Sns capability.
+type SnsCapability @capabilityType(id: "urn:tdm:regionName/acctID/default:capability:SnsCapability") {
+    PublishMessage: PublishMessage @action(id: "urn:tdm:regionName/acctID/default:action:PublishMessage")
+}
+
+# Service definition for the Amazon sns API.
+query SnsService @service(id:"urn:tdm:regionName/acctID/default:service:TGWorkshopSnsService") {
+    REST {
+        SnsCapability(id:"urn:tdm:regionName/acctID/default:capability:SnsCapability") {
+            Action(name:"PublishMessage") {
+                params {
+                    param(name:"topicArn", property:"urn:tdm:aws:Property:String"),
+                    param(name:"subject", property:"urn:tdm:aws:Property:String"),
+                    param(name:"message", property:"urn:tdm:aws:Property:String")
+
+                }
+                HttpPost {
+                    Request(url:"$macro(https://sns.${systemConfig.awsRegion}.amazonaws.com)", auth:"SigV4", awsServiceName:"sns") {
+                        headerParams {
+                            param(name:"Accept", property:"urn:tdm:aws:Property:String", value:"application/json")
+                            param(name:"Content-Type", property:"urn:tdm:aws:Property:String", value:"application/json")
+                        }
+                        queryParams {
+                            param(name:"Action", property:"urn:tdm:aws:Property:String", value:"Publish")
+                            param(name:"TopicArn", property:"urn:tdm:aws:Property:String", value:"$macro(${topicArn.value})")
+                            param(name:"Subject", property:"urn:tdm:aws:Property:String", value:"$macro(${subject.value})")
+                            param(name:"Message", property:"urn:tdm:aws:Property:String", value:"$macro(${message.value})")
+                        }
+                    }
+                    Response {
+                        responsePayload(property:"urn:tdm:aws:Property:Json")
+                    }
+                }
+            }
+        }
+    }
+}
+}

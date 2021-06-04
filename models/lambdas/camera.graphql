@@ -1,0 +1,54 @@
+{
+# Camera state.
+type CameraState @stateType(id: "urn:tdm:regionName/acctID/default:state:CameraState") {
+            lastClickedImage : Uri @property(id: "urn:tdm:aws:property:String")
+}
+
+# Property representing the camera state.
+type CameraStateProperty @propertyType(id: "urn:tdm:regionName/acctID/default:property:CameraStateProperty",
+instanceOf: "urn:tdm:regionName/acctID/default:state:CameraState") {ignore:void}
+
+# The Capture action takes the S3 bucket name and returns the state of the device after completing.
+type Capture @actionType(id:"urn:tdm:regionName/acctID/default:action:Capture") {
+    BucketName: String @property(id: "urn:tdm:aws:Property:String")
+    return : CameraStateProperty @property(id: "urn:tdm:regionName/acctID/default:property:CameraStateProperty")
+}
+
+# Camera capability.
+type CameraCapability @capabilityType(id: "urn:tdm:regionName/acctID/default:capability:CameraCapability") {
+        STATE: CameraState @state(id: "urn:tdm:regionName/acctID/default:state:CameraState")
+        capture: Capture @action(id: "urn:tdm:regionName/acctID/default:action:Capture")
+}
+
+# Camera device model.
+type Camera @deviceModel(id:"urn:tdm:regionName/acctID/default:deviceModel:Camera",
+capability: "urn:tdm:regionName/acctID/default:capability:CameraCapability"){ignore:void}
+
+# Device definition for the Raspberry Pi Camera.
+# In our implementation, this device uses a Java driver to connect to AWS IoT Greengrass.
+query RaspberryPiCamera @device(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopRaspberryPiCamera",
+            deviceModel: "urn:tdm:regionName/acctID/default:deviceModel:Camera") {
+        MQTT {
+            CameraCapability(id: "urn:tdm:regionName/acctID/default:capability:CameraCapability") {
+                state {
+                    lastClickedImage(name: "lastImage", property: "urn:tdm:aws:property:String")
+                }
+                Action(name: "capture") {
+                     params {
+                        param(name:"BucketName", property:"urn:tdm:aws:Property:String")
+                    }
+                    Publish {
+                        Request(topic: "things-graph-workshop/camera/capture)") {
+                             params{
+                                param(name:"BucketName", property:"urn:tdm:aws:Property:String", value:"${BucketName.value}")
+                             }
+                        }
+                        Response(topic: "things-graph-workshop/camera/capture/finished)") {
+                            responsePayload(property: "urn:tdm:regionName/acctID/default:property:CameraStateProperty")
+                        }
+                    }
+                }
+            }
+        }
+}
+}

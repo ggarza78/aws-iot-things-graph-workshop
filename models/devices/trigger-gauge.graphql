@@ -1,0 +1,43 @@
+{
+# Image Path.
+type ImagePath @stateType(id: "urn:tdm:regionName/acctID/default:State:ImagePath") {
+        imagePath: String @property(id: "urn:tdm:aws:property:String")
+}
+
+# Property representing the button state.
+type ImagePatheProperty @propertyType(id: "urn:tdm:regionName/acctID/default:property:ImagePathProperty",
+            instanceOf: "urn:tdm:regionName/acctID/default:State:ImagePath",
+description: "Property representing the image path") {ignore:void}
+
+# Event emitted by the image.
+type ImageEvent @eventType(id: "urn:tdm:regionName/acctID/default:event:ImageEvent",
+payload: "urn:tdm:regionName/acctID/default:property:ImagePathProperty") {ignore:void}
+
+# Image capability.
+type ImageCapability @capabilityType(id: "urn:tdm:regionName/acctID/default:capability:ImageCapability") {
+        Path: ImagePath @state(id: "urn:tdm:regionName/acctID/default:State:ImagePath")
+        NewImage: ImageEvent @event(id: "urn:tdm:regionName/acctID/default:event:ImageEvent")
+}
+
+# Analog Gauge model.
+type TGWorkshopAnalogGaugeModel @deviceModel(id: "urn:tdm:regionName/acctID/default:deviceModel:TGWorkshopAnalogGaugeModel",
+capability: "urn:tdm:regionName/acctID/default:capability:ImageCapability") {ignore:void}
+
+# Device definition for the Raspberry Pi button.
+# In our implementation, this device uses a Java driver to connect to AWS IoT Greengrass.
+query TGWorkshopAnalogGauge @device(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopAnalogGauge",
+            deviceModel: "urn:tdm:regionName/acctID/default:deviceModel:TGWorkshopAnalogGaugeModel") {
+        MQTT {
+            ImageCapability(id: "urn:tdm:regionName/acctID/default:capability:ImageCapability") {
+                state {
+                    imagePath(name:"imagePath", property:"urn:tdm:aws:property:String")
+                }
+                Event(name: "NewImage") {
+                    Subscribe(topic: "things-graph-workshop/analog-gauge/new-image") {
+                            responsepayload(property: "urn:tdm:regionName/acctID/default:property:ImagePathProperty")
+                    }
+                }
+            }
+        }
+}  
+}

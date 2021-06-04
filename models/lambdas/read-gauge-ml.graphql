@@ -1,0 +1,50 @@
+{
+# The readGaugeResponseMLStructure state defines the structure of the readGaugeAction response.
+type readGaugeMLResponseStructure @stateType(id: "urn:tdm:regionName/acctID/default:State:readGaugeResponseMLStructure") {
+    gaugeReading: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    errorCode: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    errorMessage : String @property(id: "urn:tdm:aws:Property:String")
+}
+
+# Property representing the readGaugeResponseStructure state. 
+type readGaugeMLResponse @propertyType(id: "urn:tdm:regionName/acctID/default:property:readGaugeMLResponse" 
+    instanceOf: "urn:tdm:regionName/acctID/default:State:readGaugeResponseMLStructure") {ignore:void}
+
+# The readGaugeMLAction takes a string as input and returns the number of unique words and the 
+# most frequently used word in the string.
+type readGaugeMLAction @actionType(id: "urn:tdm:regionName/acctID/default:action:readGaugeMLAction") {
+    s3ObjectKey : String @property(id: "urn:tdm:aws:property:String"),
+    s3BucketName : String @property(id: "urn:tdm:aws:property:String"),
+    return : readGaugeMLResponse @property(id: "urn:tdm:regionName/acctID/default:property:readGaugeMLResponse")
+}
+
+# The readGauge capability.
+type readGaugeMLCapability @capabilityType(id: "urn:tdm:regionName/acctID/default:capability:readGaugeMLCapability") {
+    readGauge : readGaugeMLAction @action(id: "urn:tdm:regionName/acctID/default:action:readGaugeMLAction")
+}
+
+# Service definition for readGauge. It's implemented as an AWS IoT Greengrass Lambda function.
+query readGaugeML @service(id: "urn:tdm:regionName/acctID/default:Service:TGWorkshopReadGaugeMLLambda") {
+    AwsLambda {
+            readGaugeCapability(id: "urn:tdm:regionName/acctID/default:capability:readGaugeMLCapability") {
+                Action(name: "readGauge") {
+                    params {
+                        param(name: "s3ObjectKey", property:"urn:tdm:aws:property:String"),
+                        param(name: "s3BucketName", property:"urn:tdm:aws:property:String")
+                    }
+                    InvokeGreengrassLambda {
+                        Request(arn: "$macro(arn:aws:lambda:${systemConfig.awsRegion}:${systemConfig.awsAccountId}:function:things-graph-workshop-read-gauge-ml:Latest)") {
+                            params {
+                                param(name: "s3ObjectKey", property:"urn:tdm:aws:property:String", value: "${s3ObjectKey.value}"),
+                                param(name: "s3BucketName", property:"urn:tdm:aws:property:String", value: "${s3BucketName.value}")   
+                            }
+                        }
+                        Response {
+                            responsePayload(property: "urn:tdm:regionName/acctID/default:property:readGaugeMLResponse")
+                        }
+                    }
+                }
+            }
+        }
+}
+}

@@ -1,0 +1,53 @@
+{
+# The lambdaProxyResponseStructure state defines the structure of the lambdaProxyAction response.
+type lambdaProxyResponseStructure @stateType(id: "urn:tdm:regionName/acctID/default:State:lambdaProxyResponseStructure") {
+    gaugeReading: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    errorCode: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    errorMessage : String @property(id: "urn:tdm:aws:Property:String")
+}
+
+# Property representing the lambdaProxyResponseStructure state. 
+type lambdaProxyResponse @propertyType(id: "urn:tdm:regionName/acctID/default:property:lambdaProxyResponse" 
+    instanceOf: "urn:tdm:regionName/acctID/default:State:lambdaProxyResponseStructure") {ignore:void}
+
+# The lambdaProxyAction takes a string as input and returns the number of unique words and the 
+# most frequently used word in the string.
+type lambdaProxyAction @actionType(id: "urn:tdm:regionName/acctID/default:action:lambdaProxyAction") {
+    s3ObjectKey : String @property(id: "urn:tdm:aws:property:String"),
+    s3BucketName : String @property(id: "urn:tdm:aws:property:String"),
+    lambdaFunctionName : String @property(id: "urn:tdm:aws:property:String"),
+    return : lambdaProxyResponse @property(id: "urn:tdm:regionName/acctID/default:property:lambdaProxyResponse")
+}
+
+# The lambdaProxy capability.
+type lambdaProxyCapability @capabilityType(id: "urn:tdm:regionName/acctID/default:capability:lambdaProxyCapability") {
+    proxy : lambdaProxyAction @action(id: "urn:tdm:regionName/acctID/default:action:lambdaProxyAction")
+}
+
+# Service definition for lambdaProxy. It's implemented as an AWS IoT Greengrass Lambda function.
+query lambdaProxy @service(id: "urn:tdm:regionName/acctID/default:Service:TGWorkshopLambdaProxy") {
+    AwsLambda {
+            lambdaProxyCapability(id: "urn:tdm:regionName/acctID/default:capability:lambdaProxyCapability") {
+                Action(name: "proxy") {
+                    params {
+                        param(name: "s3ObjectKey", property:"urn:tdm:aws:property:String"),
+                        param(name: "s3BucketName", property:"urn:tdm:aws:property:String"),
+                        param(name: "lambdaFunctionName", property:"urn:tdm:aws:property:String")
+                    }
+                    InvokeGreengrassLambda {
+                        Request(arn: "$macro(arn:aws:lambda:${systemConfig.awsRegion}:${systemConfig.awsAccountId}:function:things-graph-workshop-lambda-proxy:Latest)") {
+                            params {
+                                param(name: "s3ObjectKey", property:"urn:tdm:aws:property:String", value: "${s3ObjectKey.value}"),
+                                param(name: "s3BucketName", property:"urn:tdm:aws:property:String", value: "${s3BucketName.value}"),
+                                param(name: "lambdaFunctionName", property:"urn:tdm:aws:property:String", value: "${lambdaFunctionName.value}") 
+                            }
+                        }
+                        Response {
+                            responsePayload(property: "urn:tdm:regionName/acctID/default:property:lambdaProxyResponse")
+                        }
+                    }
+                }
+            }
+        }
+}
+}

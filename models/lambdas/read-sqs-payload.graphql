@@ -1,0 +1,51 @@
+{
+# Defines the structure of the readSqsPayloadAction response.
+type readSqsPayloadResponseStructure @stateType(id: "urn:tdm:regionName/acctID/default:State:readSqsPayloadResponseStructure") {
+    receiptHandle : String @property(id: "urn:tdm:aws:property:String"),
+    s3ObjectKey : String @property(id: "urn:tdm:aws:property:String"),
+    s3BucketName : String @property(id: "urn:tdm:aws:property:String"),
+    imageUrl : String @property(id: "urn:tdm:aws:property:String"),
+    snsTopicArn : String @property(id: "urn:tdm:aws:property:String"),
+    errorCode: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    errorMessage : String @property(id: "urn:tdm:aws:Property:String")
+
+}
+
+# Property representing the readSqsPayloadResponseStructure state. 
+type readSqsPayloadResponse @propertyType(id: "urn:tdm:regionName/acctID/default:property:readSqsPayloadResponse" 
+    instanceOf: "urn:tdm:regionName/acctID/default:State:readSqsPayloadResponseStructure") {ignore:void}
+
+
+type readSqsPayloadAction @actionType(id: "urn:tdm:regionName/acctID/default:action:readSqsPayloadAction") {
+    sqsPayload : Json @property(id: "urn:tdm:aws:property:Json"),
+    return : readSqsPayloadResponse @property(id: "urn:tdm:regionName/acctID/default:property:readSqsPayloadResponse")
+}
+
+# The readSqsPayload capability.
+type readSqsPayloadCapability @capabilityType(id: "urn:tdm:regionName/acctID/default:capability:readSqsPayloadCapability") {
+    readSqsPayload : readSqsPayloadAction @action(id: "urn:tdm:regionName/acctID/default:action:readSqsPayloadAction")
+}
+
+# Service definition for readSqsPayload. It's implemented as an AWS IoT Greengrass Lambda function.
+query readSqsPayload @service(id: "urn:tdm:regionName/acctID/default:Service:TGWorkshopReadSqsPayloadLambda") {
+    AwsLambda {
+            readSqsPayloadCapability(id: "urn:tdm:regionName/acctID/default:capability:readSqsPayloadCapability") {
+                Action(name: "readSqsPayload") {
+                    params {
+                        param(name: "sqsPayload", property:"urn:tdm:aws:property:Json")
+                    }
+                    InvokeGreengrassLambda {
+                        Request(arn: "$macro(arn:aws:lambda:${systemConfig.awsRegion}:${systemConfig.awsAccountId}:function:things-graph-workshop-read-sqs-payload:Latest)") {
+                            params {
+                                param(name: "sqsPayload", property:"urn:tdm:aws:property:Json", value: "${sqsPayload.value}")
+                            }
+                        }
+                        Response {
+                            responsePayload(property: "urn:tdm:regionName/acctID/default:property:readSqsPayloadResponse")
+                        }
+                    }
+                }
+            }
+        }
+}
+}

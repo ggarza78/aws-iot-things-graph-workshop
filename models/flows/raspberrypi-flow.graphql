@@ -1,0 +1,128 @@
+type ThingsGraphWorkshopRpiFlow @systemType(id: "urn:tdm:regionName/acctID/default:System:ThingsGraphWorkshopRpiFlow", description: "") {
+  greenLight1: GreenLight1 @thing(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopLight")
+  redLight1: RedLight1 @thing(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopLight")
+  tGWorkshopGaugeReader: TGWorkshopGaugeReader @thing(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopGaugeReader")
+  greenLight2: GreenLight2 @thing(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopLight")
+  redLight2: RedLight2 @thing(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopLight")
+  redLight3: RedLight3 @thing(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopLight")
+  greenLight3: GreenLight3 @thing(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopLight")
+  tGWorkshopAnalogGauge: TGWorkshopAnalogGauge @thing(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopAnalogGauge")
+  ThingsGraphWorkshopRpiFlow: ThingsGraphWorkshopRpiFlow @workflow(id: "urn:tdm:regionName/acctID/default:Workflow:ThingsGraphWorkshopRpiFlow")
+}
+
+query ThingsGraphWorkshopRpiFlow($greenLight1: string!, $redLight1: string!, $tGWorkshopGaugeReader: string!, $greenLight2: string!, $redLight2: string!, $redLight3: string!, $greenLight3: string!) @workflowType(id: "urn:tdm:regionName/acctID/default:Workflow:ThingsGraphWorkshopRpiFlow") @triggers(definition: "{tGWorkshopAnalogGauge(description: \"\") @position(x: 600.7568664550781, y: 421.81766510009766) {\n  condition(expr: \"devices[name == \\\"tGWorkshopAnalogGauge\\\"].events[name == \\\"NewImage\\\"].lastEvent\")\n  action(expr: \"ThingsGraph.startFlow(\\\"ThingsGraphWorkshopRpiFlow\\\", bindings[name == \\\"greenLight1\\\"].deviceId, bindings[name == \\\"redLight1\\\"].deviceId, bindings[name == \\\"tGWorkshopGaugeReader\\\"].deviceId, bindings[name == \\\"greenLight2\\\"].deviceId, bindings[name == \\\"redLight2\\\"].deviceId, bindings[name == \\\"redLight3\\\"].deviceId, bindings[name == \\\"greenLight3\\\"].deviceId)\")\n}}") @annotation(type: "tgc:FlowEvent", id: "sledge23b0b324d55a4e37b7a4d957a6cdaa21", x: 1628.5083154983672, y: 739.3208188812603) @annotation(type: "tgc:FlowEvent", id: "detected", x: 904.5047236706924, y: 923.5319861174758) @annotation(type: "tgc:FlowEvent", id: "sledgebc5f438fda334ab19399a3d6f806f0c5", x: 1089.6419355524185, y: 1032.3637905499793) @annotation(type: "tgc:FlowEvent", id: "sledge6c628ef08fda4cfeb6b31fd11f59c01d", x: 1262.9896240234375, y: 436.9895706176758) @annotation(type: "tgc:FlowEvent", id: "sledge73fba7b30a3a41eba2647a6a6fb09ba0", x: 1158, y: 741) @annotation(type: "tgc:FlowEvent", id: "recordNotFound", x: 917.2437193265138, y: 543.6457811714686) @annotation(type: "tgc:FlowEvent", id: "recordFound", x: 916.2228962330742, y: 604.0563664576189) @annotation(type: "tgc:FlowEvent", id: "sledge7b026b263ab04dc1b85f16d18e22eb37", x: 607.0287631430207, y: 739.5802914293374) @annotation(type: "tgc:FlowEvent", id: "notDetected", x: 903.1569265259136, y: 836.2646472826248) @annotation(type: "tgc:FlowEvent", id: "sledge25217980321c4d00a9f60c8991016ee6", x: 608.2323086972268, y: 1030.0241576801975) @annotation(type: "tgc:FlowEvent", id: "sledge0170c26de78643309c433da110f18f48", x: 594.1146518559308, y: 1183.7200933508752) @annotation(type: "tgc:FlowEvent", id: "AboveThreshold", x: 1087.4211682163552, y: 1134.4902449998522) @annotation(type: "tgc:FlowEvent", id: "BellowThreshold", x: 1089.0392061664795, y: 1262.7494761485927) @annotation(type: "tgc:FlowEvent", id: "sledgee8c67a02eb544a6aba9c30900f0c5eaa", x: 1598, y: 1134) @annotation(type: "tgc:FlowEvent", id: "sledgee831771cb2bf4fa185fd1e21ba87108c", x: 1602.8284164905099, y: 1263.205796226422) {
+  variables {
+    readGaugeResult @property(id: "urn:tdm:regionName/acctID/default:property:readGaugeResponse")
+    gaugeType @property(id: "urn:tdm:regionName/acctID/default:property:identifyGaugeTypeResponse")
+    sqsResult @property(id: "urn:tdm:regionName/acctID/default:property:readSqsPayloadResponse")
+    SqsPayload @property(id: "urn:tdm:aws:Property:Json")
+    sqsDeleteResult @property(id: "urn:tdm:aws:Property:Json")
+    step16TGWorkshopSnsServiceResult @property(id: "urn:tdm:aws:Property:Json")
+    step17TGWorkshopSnsServiceResult @property(id: "urn:tdm:aws:Property:Json")
+  }
+  steps {
+    step(name: "Step7readGaugeLambda", outEvent: ["sledgebc5f438fda334ab19399a3d6f806f0c5"], inEvent: ["sledge25217980321c4d00a9f60c8991016ee6"]) @position(x: 780.4783701107202, y: 1015.7953152255056) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:Service:TGWorkshopReadGaugeLambda", out: "readGaugeResult") {
+        readGauge(s3BucketName: "${sqsResult.s3BucketName}", min_angle: "${gaugeType.min_angle}", max_angle: "${gaugeType.max_angle}", min_value: "${gaugeType.min_value}", max_value: "${gaugeType.max_value}", units: "${gaugeType.units}", s3ObjectKey: "${sqsResult.s3ObjectKey}", s3ObjectUrl: "${sqsResult.s3ObjectUrl}")
+      }
+    }
+    step(name: "Step5identifyGaugeTypeLambda", outEvent: ["sledge23b0b324d55a4e37b7a4d957a6cdaa21"], inEvent: ["sledge73fba7b30a3a41eba2647a6a6fb09ba0"]) @position(x: 1323.7904001224463, y: 726.9841045320871) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:Service:TGWorkshopIdentifyGaugeTypeLambda", out: "gaugeType") {
+        identifyGaugeType(s3BucketName: "${sqsResult.s3BucketName}", s3ObjectKey: "${sqsResult.s3ObjectKey}")
+      }
+    }
+    step(name: "Step2ReadSqsPayloadLambda", inEvent: ["sledge6c628ef08fda4cfeb6b31fd11f59c01d"]) @position(x: 1426.5030517578125, y: 420.6178970336914) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:Service:TGWorkshopReadSqsPayloadLambda", out: "sqsResult") {
+        readSqsPayload(sqsPayload: "${SqsPayload}")
+      }
+    }
+    step(name: "Step 6 GaugeDetected", inEvent: ["sledge23b0b324d55a4e37b7a4d957a6cdaa21"]) @position(x: 597.6832596445942, y: 867.0335840028531) {
+      ChoiceActivity {
+        rule(expr: "${gaugeType.errorCode == 200}") {
+          setEvent(name: "detected")
+        }
+        rule(expr: "${gaugeType.errorCode != 200}") {
+          setEvent(name: "notDetected")
+        }
+        default
+      }
+    }
+    step(name: "Step 3 Found SQS Record") @position(x: 606.2186279296875, y: 553.0297927856445) {
+      ChoiceActivity {
+        rule(expr: "${sqsResult.errorCode == 200}") {
+          setEvent(name: "recordFound")
+        }
+        rule(expr: "${sqsResult.errorCode != 200}") {
+          setEvent(name: "recordNotFound")
+        }
+        default
+      }
+    }
+    step(name: "Step12TGWorkshopSqsService", outEvent: ["sledge6c628ef08fda4cfeb6b31fd11f59c01d"]) @position(x: 966.302001953125, y: 420.80728912353516) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:service:TGWorkshopSqsService", out: "SqsPayload") {
+        ReceiveMessage(queueName: "things-graph-workshop-queue")
+      }
+    }
+    step(name: "Step13TGWorkshopSqsService", outEvent: ["sledge73fba7b30a3a41eba2647a6a6fb09ba0"], inEvent: ["sledge7b026b263ab04dc1b85f16d18e22eb37"]) @position(x: 832.2813110351562, y: 724.7864799499512) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:service:TGWorkshopSqsService", out: "sqsDeleteResult") {
+        DeleteMessage(queueName: "things-graph-workshop-queue", receiptHandle: "${sqsResult.receiptHandle}")
+      }
+    }
+    step(name: "Step9GreenLight1", inEvent: ["recordFound"], outEvent: ["sledge7b026b263ab04dc1b85f16d18e22eb37"]) @position(x: 1145.1281695786668, y: 591.8795089525372) {
+      DeviceActivity(deviceModel: "urn:tdm:regionName/acctID/default:deviceModel:TGWorkshopLightModel", deviceId: "${GreenLight1}") @device(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopLight") {
+        toggleLight(GPIOPort: "4")
+      }
+    }
+    step(name: "Step10RedLight1", inEvent: ["recordNotFound"]) @position(x: 1144.7672729492188, y: 524.8280715942383) {
+      DeviceActivity(deviceModel: "urn:tdm:regionName/acctID/default:deviceModel:TGWorkshopLightModel", deviceId: "${RedLight1}") @device(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopLight") {
+        toggleLight(GPIOPort: "12")
+      }
+    }
+    step(name: "Step11TGWorkshopGaugeReader", inEvent: ["sledgebc5f438fda334ab19399a3d6f806f0c5"], outEvent: ["sledge0170c26de78643309c433da110f18f48"]) @position(x: 1303.6135237737997, y: 1016.615854081052) {
+      DeviceActivity(deviceModel: "urn:tdm:regionName/acctID/default:deviceModel:GaugeReaderModel", deviceId: "${TGWorkshopGaugeReader}") @device(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopGaugeReader") {
+        publishGaugeReadings(s3ObjectKey: "${sqsResult.s3ObjectKey}", s3BucketName: "${sqsResult.s3BucketName}", gaugeType: "gaugeType", gaugeID: "${gaugeType.gaugeID}", gaugeReading: "${readGaugeResult.gaugeReading}", errorCode: "${readGaugeResult.errorCode}", errorMessage: "${readGaugeResult.errorMessage}")
+      }
+    }
+    step(name: "Step11GreenLight2", inEvent: ["detected"], outEvent: ["sledge25217980321c4d00a9f60c8991016ee6"]) @position(x: 1130.7195196088576, y: 909.4710047784118) {
+      DeviceActivity(deviceModel: "urn:tdm:regionName/acctID/default:deviceModel:TGWorkshopLightModel", deviceId: "${GreenLight2}") @device(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopLight") {
+        toggleLight(GPIOPort: "19")
+      }
+    }
+    step(name: "Step12RedLight2", inEvent: ["notDetected"]) @position(x: 1130.748968927389, y: 820.5696907151727) {
+      DeviceActivity(deviceModel: "urn:tdm:regionName/acctID/default:deviceModel:TGWorkshopLightModel", deviceId: "${RedLight2}") @device(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopLight") {
+        toggleLight(GPIOPort: "24")
+      }
+    }
+    step(name: "CheckThreshold", inEvent: ["sledge0170c26de78643309c433da110f18f48"]) @position(x: 773.1035389534799, y: 1169.6414712925734) {
+      ChoiceActivity {
+        rule(expr: "${readGaugeResult.gaugeReading < gaugeType.threshold }") {
+          setEvent(name: "BellowThreshold")
+        }
+        rule(expr: "${readGaugeResult.gaugeReading >=  gaugeType.threshold }") {
+          setEvent(name: "AboveThreshold")
+        }
+        default
+      }
+    }
+    step(name: "Step14RedLight3", inEvent: ["AboveThreshold"], outEvent: ["sledgee8c67a02eb544a6aba9c30900f0c5eaa"]) @position(x: 1321.8066775810075, y: 1119.47963862568) {
+      DeviceActivity(deviceModel: "urn:tdm:regionName/acctID/default:deviceModel:TGWorkshopLightModel", deviceId: "${RedLight3}") @device(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopLight") {
+        toggleLight(GPIOPort: "23")
+      }
+    }
+    step(name: "Step15GreenLight3", inEvent: ["BellowThreshold"], outEvent: ["sledgee831771cb2bf4fa185fd1e21ba87108c"]) @position(x: 1323.7184834547954, y: 1248.1653859870212) {
+      DeviceActivity(deviceModel: "urn:tdm:regionName/acctID/default:deviceModel:TGWorkshopLightModel", deviceId: "${GreenLight3}") @device(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopLight") {
+        toggleLight(GPIOPort: "26")
+      }
+    }
+    step(name: "Step16TGWorkshopSnsService", inEvent: ["sledgee8c67a02eb544a6aba9c30900f0c5eaa"]) @position(x: 1757.0103814044762, y: 1118.5435256308392) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:service:TGWorkshopSnsService", out: "step16TGWorkshopSnsServiceResult") {
+        PublishMessage(topicArn: "${sqsResult.snsTopicArn}", subject: "workshop", message: "AboveThreshold")
+      }
+    }
+    step(name: "Step17TGWorkshopSnsService", inEvent: ["sledgee831771cb2bf4fa185fd1e21ba87108c"]) @position(x: 1757.9565706857559, y: 1248.1555198878755) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:service:TGWorkshopSnsService", out: "step17TGWorkshopSnsServiceResult") {
+        PublishMessage(topicArn: "${sqsResult.snsTopicArn}", subject: "workshop", message: "BellowThreshold")
+      }
+    }
+  }
+}

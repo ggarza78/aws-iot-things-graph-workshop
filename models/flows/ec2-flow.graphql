@@ -1,0 +1,88 @@
+type ThingsGraphWorkshopEC2Flow @systemType(id: "urn:tdm:regionName/acctID/default:System:ThingsGraphWorkshopEC2Flow", description: "") {
+  ThingsGraphWorkshopEC2Flow: ThingsGraphWorkshopEC2Flow @workflow(id: "urn:tdm:regionName/acctID/default:Workflow:ThingsGraphWorkshopEC2Flow")
+}
+
+query ThingsGraphWorkshopEC2Flow @workflowType(id: "urn:tdm:regionName/acctID/default:Workflow:ThingsGraphWorkshopEC2Flow") @triggers(definition: "{ClockTrigger(description: \"\") @position(x: 609.3228149414062, y: 422.0503387451172) {\n  condition(expr: \"every 30 seconds\")\n  action(expr: \"ThingsGraph.startFlow(\\\"ThingsGraphWorkshopEC2Flow\\\")\")\n}}") @annotation(type: "tgc:FlowEvent", id: "sledge23b0b324d55a4e37b7a4d957a6cdaa21", x: 904.4979248046875, y: 727.3104248046875) @annotation(type: "tgc:FlowEvent", id: "detected", x: 1368.4840087890625, y: 725.5112609863281) @annotation(type: "tgc:FlowEvent", id: "sledgebc5f438fda334ab19399a3d6f806f0c5", x: 600.6211242675781, y: 853.3430480957031) @annotation(type: "tgc:FlowEvent", id: "sledge6c628ef08fda4cfeb6b31fd11f59c01d", x: 1262.9896240234375, y: 436.9895706176758) @annotation(type: "tgc:FlowEvent", id: "sledge73fba7b30a3a41eba2647a6a6fb09ba0", x: 1482.9895629882812, y: 565.9895629882812) @annotation(type: "tgc:FlowEvent", id: "recordFound", x: 919.2124633789062, y: 567.0459289550781) @annotation(type: "tgc:FlowEvent", id: "sledge0170c26de78643309c433da110f18f48", x: 1065.0835571289062, y: 855.6888122558594) @annotation(type: "tgc:FlowEvent", id: "AboveThreshold", x: 1536.4108276367188, y: 816.4798889160156) @annotation(type: "tgc:FlowEvent", id: "BellowThreshold", x: 1520.0287780761719, y: 909.7390289306641) @annotation(type: "tgc:FlowEvent", id: "sledgee8bf630d26a7444a8e6f9b2002aa7786", x: 454.3751983642578, y: 568.0970458984375) {
+  variables {
+    gaugeType @property(id: "urn:tdm:regionName/acctID/default:property:identifyGaugeTypeResponse")
+    sqsResult @property(id: "urn:tdm:regionName/acctID/default:property:readSqsPayloadResponse")
+    SqsPayload @property(id: "urn:tdm:aws:Property:Json")
+    sqsDeleteResult @property(id: "urn:tdm:aws:Property:Json")
+    readGaugeResult @property(id: "urn:tdm:regionName/acctID/default:property:lambdaProxyResponse")
+  }
+  steps {
+    step(name: "Step5identifyGaugeTypeLambda", outEvent: ["sledge23b0b324d55a4e37b7a4d957a6cdaa21"], inEvent: ["sledge73fba7b30a3a41eba2647a6a6fb09ba0"]) @position(x: 602.780029296875, y: 712.9737243652344) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:Service:TGWorkshopIdentifyGaugeTypeLambda", out: "gaugeType") {
+        identifyGaugeType(s3BucketName: "${sqsResult.s3BucketName}", s3ObjectKey: "${sqsResult.s3ObjectKey}")
+      }
+    }
+    step(name: "Step2ReadSqsPayloadLambda", inEvent: ["sledge6c628ef08fda4cfeb6b31fd11f59c01d"], outEvent: ["sledgee8bf630d26a7444a8e6f9b2002aa7786"]) @position(x: 1426.5030517578125, y: 420.6178970336914) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:Service:TGWorkshopReadSqsPayloadLambda", out: "sqsResult") {
+        readSqsPayload(sqsPayload: "${SqsPayload}")
+      }
+    }
+    step(name: "Step 6 GaugeDetected", inEvent: ["sledge23b0b324d55a4e37b7a4d957a6cdaa21"]) @position(x: 1079.6728515625, y: 711.0231628417969) {
+      ChoiceActivity {
+        rule(expr: "${gaugeType.errorCode == 200}") {
+          setEvent(name: "detected")
+        }
+        rule(expr: "${gaugeType.errorCode != 200}") {
+          setEvent(name: "notDetected")
+        }
+        default
+      }
+    }
+    step(name: "Step 3 Found SQS Record", inEvent: ["sledgee8bf630d26a7444a8e6f9b2002aa7786"]) @position(x: 606.2186279296875, y: 553.0297927856445) {
+      ChoiceActivity {
+        rule(expr: "${sqsResult.errorCode == 200}") {
+          setEvent(name: "recordFound")
+        }
+        rule(expr: "${sqsResult.errorCode != 200}") {
+          setEvent(name: "recordNotFound")
+        }
+        default
+      }
+    }
+    step(name: "Step12TGWorkshopSqsService", outEvent: ["sledge6c628ef08fda4cfeb6b31fd11f59c01d"]) @position(x: 966.302001953125, y: 420.80728912353516) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:service:TGWorkshopSqsService", out: "SqsPayload") {
+        ReceiveMessage(queueName: "things-graph-workshop-queue")
+      }
+    }
+    step(name: "Step13TGWorkshopSqsService", outEvent: ["sledge73fba7b30a3a41eba2647a6a6fb09ba0"], inEvent: ["recordFound"]) @position(x: 1189.2709350585938, y: 551.7760620117188) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:service:TGWorkshopSqsService", out: "sqsDeleteResult") {
+        DeleteMessage(queueName: "things-graph-workshop-queue", receiptHandle: "${sqsResult.receiptHandle}")
+      }
+    }
+    step(name: "CheckThreshold", inEvent: ["sledge0170c26de78643309c433da110f18f48"]) @position(x: 1219.0931396484375, y: 840.6310119628906) {
+      ChoiceActivity {
+        rule(expr: "${readGaugeResult.gaugeReading < gaugeType.threshold }") {
+          setEvent(name: "BellowThreshold")
+        }
+        rule(expr: "${readGaugeResult.gaugeReading >=  gaugeType.threshold }") {
+          setEvent(name: "AboveThreshold")
+        }
+        default
+      }
+    }
+    step(name: "Step7TGWorkshopPublishReadingLambda", inEvent: ["sledgebc5f438fda334ab19399a3d6f806f0c5"], outEvent: ["sledge0170c26de78643309c433da110f18f48"]) @position(x: 789.2221221923828, y: 840.6145706176758) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:Service:TGWorkshopPublishReadingLambda") {
+        publishReading(service: "iot", topic: "things-graph-workshop/gauge/reading", s3ObjectKey: "${sqsResult.s3ObjectKey}", s3BucketName: "${sqsResult.s3BucketName}", gaugeType: "${readGaugeResult.gaugeType}", gaugeID: "${readGaugeResult.gaugeId}", gaugeReading: "${readGaugeResult.gaugeReading}", timeStamp: "${readGaugeResult.timeStamp}", errorCode: "${readGaugeResult.errorCode}", errorMessage: "${readGaugeResult.errorMessage}")
+      }
+    }
+    step(name: "Step13TGWorkshopPublishReadingLambda", inEvent: ["AboveThreshold"]) @position(x: 1750.111083984375, y: 801.5036697387695) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:Service:TGWorkshopPublishReadingLambda") {
+        publishReading(service: "sns", topic: "${sqsResult.snsTopicArn}", s3ObjectKey: "${sqsResult.s3ObjectKey}", s3BucketName: "${sqsResult.s3BucketName}", gaugeType: "${readGaugeResult.gaugeType}", gaugeID: "${readGaugeResult.gaugeId}", gaugeReading: "${readGaugeResult.gaugeReading}", timeStamp: "${readGaugeResult.timeStamp}", errorCode: "${readGaugeResult.errorCode}", errorMessage: "${readGaugeResult.errorMessage}")
+      }
+    }
+    step(name: "Step11TGWorkshopPublishReadingLambda", inEvent: ["BellowThreshold"]) @position(x: 1748.6666259765625, y: 897.0590057373047) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:Service:TGWorkshopPublishReadingLambda") {
+        publishReading(service: "sns", topic: "${sqsResult.snsTopicArn}", s3ObjectKey: "${sqsResult.s3ObjectKey}", s3BucketName: "${sqsResult.s3BucketName}", gaugeType: "${readGaugeResult.gaugeType}", gaugeID: "${readGaugeResult.gaugeId}", gaugeReading: "${readGaugeResult.gaugeReading}", timeStamp: "${readGaugeResult.timeStamp}", errorCode: "${readGaugeResult.errorCode}", errorMessage: "${readGaugeResult.errorMessage}")
+      }
+    }
+    step(name: "Step12TGWorkshopLambdaProxy", inEvent: ["detected"], outEvent: ["sledgebc5f438fda334ab19399a3d6f806f0c5"]) @position(x: 1565.666748046875, y: 709) {
+      WebserviceActivity(webservice: "urn:tdm:regionName/acctID/default:Service:TGWorkshopLambdaProxy", out: "readGaugeResult") {
+        proxy(s3ObjectKey: "${sqsResult.s3ObjectKey}", s3BucketName: "${sqsResult.s3BucketName}", lambdaFunctionName: "things-graph-workshop-read-gauge-ml")
+      }
+    }
+  }
+}

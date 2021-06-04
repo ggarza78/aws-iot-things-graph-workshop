@@ -1,0 +1,60 @@
+{
+
+# The PublishGaugeReadingsAction publishes the results of the flow to an IoT topic
+type PublishGaugeReadingsAction @actionType(id: "urn:tdm:regionName/acctID/default:action:PublishGaugeReadingsAction") {
+    s3ObjectKey : String @property(id: "urn:tdm:aws:property:String"),
+    s3BucketName : String @property(id: "urn:tdm:aws:property:String"),
+    gaugeType : String @property(id: "urn:tdm:aws:property:String"),
+    gaugeID : String @property(id: "urn:tdm:aws:property:String"),
+    gaugeReading: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    timeStamp: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    errorCode: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    errorMessage : String @property(id: "urn:tdm:aws:Property:String")
+}
+
+# Gauge capability.
+type GaugeCapability @capabilityType(id: "urn:tdm:regionName/acctID/default:capability:GaugeCapability") {
+        publishGaugeReadings : PublishGaugeReadingsAction @action(id: "urn:tdm:regionName/acctID/default:action:PublishGaugeReadingsAction")
+}
+
+# Gauge Reader model.
+type GaugeReaderModel @deviceModel(id: "urn:tdm:regionName/acctID/default:deviceModel:GaugeReaderModel",
+capability: "urn:tdm:regionName/acctID/default:capability:GaugeCapability") {ignore:void}
+
+
+query GaugeReader @device(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopGaugeReader",
+            deviceModel: "urn:tdm:regionName/acctID/default:deviceModel:GaugeReaderModel") {
+        MQTT {            
+            GaugeCapability(id:"urn:tdm:regionName/acctID/default:capability:GaugeCapability") {
+                Action(name:"publishGaugeReadings") {
+                        params {
+                            param(name: "s3ObjectKey", property:"urn:tdm:aws:property:String"),
+                            param(name: "s3BucketName", property:"urn:tdm:aws:property:String"),
+                            param(name: "gaugeType", property:"urn:tdm:aws:property:String"),
+                            param(name: "gaugeID", property:"urn:tdm:aws:property:String"),
+                            param(name: "gaugeReading", property:"urn:tdm:aws:property:Int32"),
+                            param(name: "timeStamp", property:"urn:tdm:aws:property:Int32"),
+                            param(name: "errorCode", property:"urn:tdm:aws:property:Int32"),
+                            param(name: "errorMessage", property:"urn:tdm:aws:property:String")
+                         }
+                Publish{
+                    Request(topic: "things-graph-workshop/gauge/reading") {
+                         params {
+                            param(name: "s3ObjectKey", property:"urn:tdm:aws:property:String", value: "${s3ObjectKey.value}"),
+                            param(name: "s3BucketName", property:"urn:tdm:aws:property:String", value: "${s3BucketName.value}"),
+                            param(name: "gaugeType", property:"urn:tdm:aws:property:String", value: "${gaugeType.value}"),
+                            param(name: "gaugeID", property:"urn:tdm:aws:property:String", value: "${gaugeID.value}"),
+                            param(name: "gaugeReading", property:"urn:tdm:aws:property:Int32", value: "${gaugeReading.value}"),
+                            param(name: "timeStamp", property:"urn:tdm:aws:property:Int32", value: "${timeStamp.value}"),
+                            param(name: "errorCode", property:"urn:tdm:aws:property:Int32", value: "${errorCode.value}"),
+                            param(name: "errorMessage", property:"urn:tdm:aws:property:String", value: "${errorMessage.value}")
+                         }
+                    }
+                }
+
+            }
+        }
+            
+        }
+}  
+}
