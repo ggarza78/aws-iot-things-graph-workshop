@@ -12,7 +12,7 @@ AWS IoT Things Graph is an orchestration service that simplifies development of 
 
 In this post we will discuss the different components of AWS IoT Things Graph and build different flows and deploy them both at the edge and in the cloud. 
 
-Read more on the accompanying [blog post](https://aws-blogs-prod.amazon.com/iot/monitoring-your-gauges-on-the-factory-floor-with-aws-iot-things-graph/).
+Read more on the accompanying [blog post](https://aws.amazon.com/blogs/iot/monitoring-your-gauges-on-the-factory-floor-with-aws-iot-things-graph/).
 
 # **Solution Overview**
 
