@@ -1,0 +1,77 @@
+{
+# Amazon Sqs Receive Message action. This action takes reads a single record from Sqs.
+# The response will be in Json format
+type ReceiveMessage @actionType(id: "urn:tdm:regionName/acctID/default:action:ReceiveMessage") {
+    queueName: String @property(id: "urn:tdm:aws:Property:String")
+    return: Json @property(id: "urn:tdm:aws:Property:Json")
+}
+
+# Amazon Sqs Delete Message action. This action takes deletes a single record from Sqs.
+# The response will be in Json format
+type DeleteMessage @actionType(id: "urn:tdm:regionName/acctID/default:action:DeleteMessage") {
+    queueName: String @property(id: "urn:tdm:aws:Property:String")
+    receiptHandle: String @property(id: "urn:tdm:aws:Property:String")
+    return: Json @property(id: "urn:tdm:aws:Property:Json")
+}
+
+# Amazon Sqs capability.
+type SqsCapability @capabilityType(id: "urn:tdm:regionName/acctID/default:capability:SqsCapability") {
+    ReceiveMessage: ReceiveMessage @action(id: "urn:tdm:regionName/acctID/default:action:ReceiveMessage")
+    DeleteMessage: DeleteMessage @action(id: "urn:tdm:regionName/acctID/default:action:DeleteMessage")
+}
+
+# Service definition for the Amazon Sqs API.
+query SqsService @service(id:"urn:tdm:regionName/acctID/default:service:TGWorkshopSqsService") {
+    REST {
+        SqsCapability(id:"urn:tdm:regionName/acctID/default:capability:SqsCapability") {
+            Action(name:"ReceiveMessage") {
+                params {
+                    param(name:"queueName", property:"urn:tdm:aws:Property:String")
+
+                }
+                HttpPost {
+                    Request(url:"$macro(https://sqs.${systemConfig.awsRegion}.amazonaws.com/${systemConfig.awsAccountId}/things-graph-workshop-queue)", auth:"SigV4", awsServiceName:"sqs") {
+                        headerParams {
+                            param(name:"Accept", property:"urn:tdm:aws:Property:String", value:"application/json")
+                            param(name:"Content-Type", property:"urn:tdm:aws:Property:String", value:"application/json")
+                        }
+                        queryParams {
+                            param(name:"Action", property:"urn:tdm:aws:Property:String", value:"ReceiveMessage")
+                            param(name:"MaxNumberOfMessages", property:"urn:tdm:aws:Property:Int32", value:1)
+                            param(name:"VisibilityTimeout", property:"urn:tdm:aws:Property:Int32", value:15)
+                            param(name:"AttributeName", property:"urn:tdm:aws:Property:String", value:"All")
+                        }
+                    }
+                    Response {
+                        responsePayload(property:"urn:tdm:aws:Property:Json")
+                    }
+                }
+            },
+            Action(name:"DeleteMessage") {
+                params {
+                    param(name:"queueName", property:"urn:tdm:aws:Property:String")
+                    param(name:"receiptHandle", property:"urn:tdm:aws:Property:String")
+
+                }
+                HttpPost {
+                    Request(url:"$macro(https://sqs.${systemConfig.awsRegion}.amazonaws.com/${systemConfig.awsAccountId}/things-graph-workshop-queue)", auth:"SigV4", awsServiceName:"sqs") {
+                        headerParams {
+                            param(name:"Accept", property:"urn:tdm:aws:Property:String", value:"application/json")
+                            param(name:"Content-Type", property:"urn:tdm:aws:Property:String", value:"application/x-amz-json-1.1")
+                        }
+                        queryParams {
+                            param(name:"Action", property:"urn:tdm:aws:Property:String", value:"DeleteMessage")
+                            param(name:"ReceiptHandle", property:"urn:tdm:aws:Property:String", value:"$macro(${receiptHandle.value})")
+                            param(name:"VisibilityTimeout", property:"urn:tdm:aws:Property:Int32", value:15)
+                            param(name:"AttributeName", property:"urn:tdm:aws:Property:String", value:"All")
+                        }
+                    }
+                    Response {
+                        responsePayload(property:"urn:tdm:aws:Property:Json")
+                    }
+                }
+            }
+        }
+    }
+}
+}

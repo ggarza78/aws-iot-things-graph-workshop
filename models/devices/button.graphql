@@ -1,0 +1,43 @@
+{
+# Button state.
+type ButtonState @stateType(id: "urn:tdm:regionName/acctID/default:State:ButtonState") {
+        ButtonClicked: Boolean @property(id: "urn:tdm:aws:property:Boolean")
+}
+
+# Property representing the button state.
+type ButtonStateProperty @propertyType(id: "urn:tdm:regionName/acctID/default:property:ButtonStateProperty",
+            instanceOf: "urn:tdm:regionName/acctID/default:State:ButtonState",
+description: "Property representing the button state") {ignore:void}
+
+# Event emitted by the button.
+type ButtonEvent @eventType(id: "urn:tdm:regionName/acctID/default:event:ButtonEvent",
+payload: "urn:tdm:regionName/acctID/default:property:ButtonStateProperty") {ignore:void}
+
+# Button capability.
+type ButtonCapability @capabilityType(id: "urn:tdm:regionName/acctID/default:capability:ButtonCapability") {
+        STATE: ButtonState @state(id: "urn:tdm:regionName/acctID/default:State:ButtonState")
+        StateChanged: ButtonEvent @event(id: "urn:tdm:regionName/acctID/default:event:ButtonEvent")
+}
+
+# Button device model.
+type TGWorkshopButtonModel @deviceModel(id: "urn:tdm:regionName/acctID/default:deviceModel:TGWorkshopButtonModel",
+capability: "urn:tdm:regionName/acctID/default:capability:ButtonCapability") {ignore:void}
+
+# Device definition for the Raspberry Pi button.
+# In our implementation, this device uses a Java driver to connect to AWS IoT Greengrass.
+query TGWorkshopButton @device(id: "urn:tdm:regionName/acctID/default:device:TGWorkshopButton",
+            deviceModel: "urn:tdm:regionName/acctID/default:deviceModel:TGWorkshopButtonModel") {
+        MQTT {
+            ButtonCapability(id: "urn:tdm:regionName/acctID/default:capability:ButtonCapability") {
+                state {
+                    ButtonClicked(name:"ButtonClicked", property:"urn:tdm:aws:property:Boolean")
+                }
+                Event(name: "StateChanged") {
+                    Subscribe(topic: "things-graph-workshop/button/clickEvent)") {
+                            responsepayload(property: "urn:tdm:regionName/acctID/default:property:ButtonStateProperty")
+                    }
+                }
+            }
+        }
+}  
+} 

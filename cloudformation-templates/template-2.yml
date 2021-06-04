@@ -1,0 +1,1624 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "This is a Things Graph workshop template for to read analog gauges"
+
+################################################################
+#                        PARAMETER SECTION                     #
+# In this Section we will define the necessary Parameters      #
+# needed for the workshop                                      #
+################################################################
+Parameters:
+  PrefixName:
+    Type: String
+    MinLength: 1
+    Default: "things-graph-workshop"
+    Description: "The prefix we will use for the resources created in this project"
+  ReadGaugeTopicName:
+    Type: String
+    MinLength: 1
+    Default: "things-graph-workshop/analog-gauge/new-image"
+    Description: "IoT Topic Name that our Lambda function will send the results of the gauge reading to"
+  EC2KeyPair:
+    Description: Amazon EC2 Key Pair for accessing Greengrass Core instance
+    Type: "AWS::EC2::KeyPair::KeyName"
+  SecurityAccessCIDR:
+    Description: CIDR block to limit inbound access for GreenGrass instances to only SSH
+    Type: String
+    Default: '0.0.0.0/0'
+    
+ 
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: IoT Settings
+        Parameters:
+          - GaugeReadingTopicName
+    ParameterLabels:
+      ReadGaugeTopicName:
+        default: "IoT Topic we use for the results of reading of the gauge"
+
+Mappings:
+  # AMI image for GreenGrass
+  # image description:  "Amazon Linux 2 AMI (HVM), SSD Volume Type"
+  
+  AWSAMIRegionMap:
+    us-east-1: 
+      "HVM64": "ami-0742b4e673072066f"
+    us-west-2:
+      "HVM64": "ami-0518bb0e75d3619ca"
+    eu-west-1: 
+      "HVM64": "ami-0ffea00000f287d30"
+    ap-northeast-1: 
+      "HVM64": "ami-06098fd00463352b6"
+    ap-northeast-2: 
+      "HVM64": "ami-07464b2b9929898f8"
+    ap-southeast-2: 
+      "HVM64": "ami-06202e06492f46177"
+
+Resources:
+
+################################################################
+#                        EC2 SECTION                           #
+# In this Section we will define the necessary EC2 Instances   #
+# we will use for running GreenGrass                           #
+################################################################
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName:
+        Fn::Join: 
+          - '-'
+          - - Ref: PrefixName
+            - 'GreenGrass'
+      GroupDescription: 'Allow inbound SSH access'
+      VpcId:
+        !Join
+          - ''
+          - - Fn::ImportValue:
+                !Sub '${PrefixName}-vpc-id'
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: !Ref SecurityAccessCIDR
+      - IpProtocol: tcp
+        FromPort: 8883
+        ToPort: 8883
+        CidrIp: !Ref SecurityAccessCIDR
+
+  ThingsGraphGreengrassInstance:
+    Type: "AWS::EC2::Instance"
+    DependsOn: ThingsGraphEC2GreengrassGroup
+    Properties:
+      ImageId: !FindInMap [AWSAMIRegionMap, !Ref "AWS::Region", HVM64]
+      InstanceType: t3.medium
+      KeyName: !Ref EC2KeyPair
+      BlockDeviceMappings: 
+      - DeviceName: "/dev/sda1"
+        Ebs: 
+          VolumeType: "gp2"
+          VolumeSize: "20"
+      SecurityGroupIds: !Split [",", !GetAtt InstanceSecurityGroup.GroupId]
+      Tags:
+       - Key: Name
+         Value: !Join ["-", [!Ref PrefixName, "gg-core"] ]
+      SubnetId:
+        !Join
+          - ''
+          - - Fn::ImportValue:
+                !Sub '${PrefixName}-subnet-id'
+      UserData:
+        # All the steps to install dependencies and create the specific
+        # Greengrass core config and certificate/private key files.
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          sudo  yum -y install python37 libsm6 libxt6 libxrender1 java-1.8.0-openjdk
+          curl -o get-pip.py https://bootstrap.pypa.io/get-pip.py
+          python3 get-pip.py --user
+          python3 --version
+          pip3 --version
+          pip3 install numpy pillow boto3 greengrasssdk opencv-python
+          sudo ln /etc/alternatives/java /usr/bin/java8
+
+          adduser --system ggc_user
+          groupadd --system ggc_group
+          wget https://d1onfpft10uf5o.cloudfront.net/greengrass-core/downloads/1.10.0/greengrass-linux-x86-64-1.10.0.tar.gz
+          tar xzvf greengrass-linux-x86-64-1.10.0.tar.gz -C /
+          echo -n "${ThingsGraphWorkshopGGInstance.certificatePem}" > /greengrass/certs/${ThingsGraphWorkshopGGInstance.certificateId}.pem
+          echo -n "${ThingsGraphWorkshopGGInstance.privateKey}" > /greengrass/certs/${ThingsGraphWorkshopGGInstance.certificateId}.key
+          mkdir /thingsgraph
+          chown ggc_user: /thingsgraph
+          chmod 700 /thingsgraph
+          cd /greengrass/config
+          # Create Greengrass config file from inputs and parameters
+          # Can be enhanced to manage complete installation of Greengrass and credentials
+          cat <<EOT > config.json
+          {
+            "coreThing" : {
+              "caPath" : "root.ca.pem",
+              "certPath" : "${ThingsGraphWorkshopGGInstance.certificateId}.pem",
+              "keyPath" : "${ThingsGraphWorkshopGGInstance.certificateId}.key",
+              "thingArn" : "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:thing/${PrefixName}-ec2-gg-core",
+              "iotHost" : "${ThingsGraphWorkshopGGInstance.iotEndpoint}",
+              "iotMqttPort" : 443,
+              "ggHost" : "greengrass-ats.iot.${AWS::Region}.amazonaws.com",
+              "ggHttpPort" : 443
+            },
+            "runtime" : {
+              "cgroup" : {
+                "useSystemd" : "yes"
+              }
+            },
+            "managedRespawn" : false,
+            "crypto" : {
+              "principals" : {
+                "SecretsManager" : {
+                  "privateKeyPath" : "file:///greengrass/certs/${ThingsGraphWorkshopGGInstance.certificateId}.key"
+                },
+                "IoTCertificate" : {
+                  "privateKeyPath" : "file:///greengrass/certs/${ThingsGraphWorkshopGGInstance.certificateId}.key",
+                  "certificatePath" : "file:///greengrass/certs/${ThingsGraphWorkshopGGInstance.certificateId}.pem"
+                }
+              },
+              "caPath" : "file:///greengrass/certs/root.ca.pem"
+            }
+          }
+          EOT
+
+          cd /greengrass/certs/
+          wget -O root.ca.pem https://www.amazontrust.com/repository/AmazonRootCA1.pem
+
+          ###################Create the certs for the RaspberryPi as well to be used in Part 3################################ 
+
+          cd /home/ec2-user
+          sudo  -u ec2-user mkdir -p RPICerts/certs
+          sudo  -u ec2-user  mkdir -p RPICerts/config
+          sudo  -u ec2-user  cd  RPICerts/certs
+          sudo  -u ec2-user  echo -n "${IoTThingThingsGraphRPI.certificatePem}" > /home/ec2-user/RPICerts/certs/${IoTThingThingsGraphRPI.certificateId}.pem
+          sudo  -u ec2-user  echo -n "${IoTThingThingsGraphRPI.privateKey}" > /home/ec2-user/RPICerts/certs/${IoTThingThingsGraphRPI.certificateId}.key
+          sudo  -u ec2-user  wget -O root.ca.pem https://www.amazontrust.com/repository/AmazonRootCA1.pem
+          cd ../config
+          # Create Greengrass config file from inputs and parameters
+          # Can be enhanced to manage complete installation of Greengrass and credentials
+          sudo  -u ec2-user  cat <<EOT > config.json
+          {
+            "coreThing" : {
+              "caPath" : "root.ca.pem",
+              "certPath" : "${IoTThingThingsGraphRPI.certificateId}.pem",
+              "keyPath" : "${IoTThingThingsGraphRPI.certificateId}.key",
+              "thingArn" : "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:thing/${PrefixName}-raspberrypi-gg-core",
+              "iotHost" : "${IoTThingThingsGraphRPI.iotEndpoint}",
+              "iotMqttPort" : 443,
+              "ggHost" : "greengrass-ats.iot.${AWS::Region}.amazonaws.com",
+              "ggHttpPort" : 443
+            },
+            "runtime" : {
+              "cgroup" : {
+                "useSystemd" : "yes"
+              }
+            },
+            "managedRespawn" : false,
+            "crypto" : {
+              "principals" : {
+                "SecretsManager" : {
+                  "privateKeyPath" : "file:///greengrass/certs/${IoTThingThingsGraphRPI.certificateId}.key"
+                },
+                "IoTCertificate" : {
+                  "privateKeyPath" : "file:///greengrass/certs/${IoTThingThingsGraphRPI.certificateId}.key",
+                  "certificatePath" : "file:///greengrass/certs/${IoTThingThingsGraphRPI.certificateId}.pem"
+                }
+              },
+              "caPath" : "file:///greengrass/certs/root.ca.pem"
+            }
+          }
+          EOT
+          cd /home/ec2-user
+          sudo  -u ec2-user tar -zcvf RPICerts.tar.gz -C RPICerts .
+          cd /tmp
+          
+          ############## Create Greengrass systemd file ##################
+          sudo  -u ec2-user cat <<EOT > greengrass.service
+          [Unit]
+          Description=greengrass daemon
+          After=network.target
+
+          [Service]
+          ExecStart=/greengrass/ggc/core/greengrassd start
+          Type=simple
+          RestartSec=2
+          Restart=always
+          User=root
+          PIDFile=/var/run/greengrassd.pid
+
+          [Install]
+          WantedBy=multi-user.target
+          EOT
+
+          cp greengrass.service /etc/systemd/system
+          systemctl enable greengrass.service
+          reboot
+          EOT
+
+
+################################################################
+#                        EFS SECTION                           #
+# This Section creates the resources needed by our             #
+# Lamabda function running that runs the  ML model              #
+################################################################
+  EFSInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId:
+        !Join
+          - ''
+          - - Fn::ImportValue:
+                !Sub '${PrefixName}-vpc-id'
+      GroupName: EfsMountedEC2SG
+      GroupDescription: Enable SSH access via port 22
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: 0.0.0.0/0
+        
+  MountTargetSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId:
+        !Join
+          - ''
+          - - Fn::ImportValue:
+                !Sub '${PrefixName}-vpc-id'
+      GroupDescription: Security group for mount target
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '2049'
+        ToPort: '2049'
+        CidrIp: 0.0.0.0/0
+        
+  FileSystemResource:
+    Type: 'AWS::EFS::FileSystem'
+    Properties:
+      PerformanceMode: generalPurpose
+      Encrypted: true
+      FileSystemTags:
+        - Key: Name
+          Value: MLInferenceFileSystem
+  
+  MountTargetResource1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystemResource
+      SubnetId:
+        !Join
+          - ''
+          - - Fn::ImportValue:
+                !Sub '${PrefixName}-private-subnet-id'
+      SecurityGroups:
+      - !Ref MountTargetSecurityGroup
+  
+  AccessPointResource:
+    Type: 'AWS::EFS::AccessPoint'
+    Properties:
+      AccessPointTags:
+        - Key: Name
+          Value: MLInferenceAccessPoint
+      FileSystemId: !Ref FileSystemResource
+      PosixUser:
+        Uid: "1000"
+        Gid: "1000"
+      RootDirectory:
+        CreationInfo:
+          OwnerGid: "1000"
+          OwnerUid: "1000"
+          Permissions: "0777"
+        Path: "/inference"
+        
+  EfsMountEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      IamInstanceProfile: !Ref "Ec2InstanceProfile"
+      InstanceType: m5.large
+      BlockDeviceMappings: 
+      - DeviceName: "/dev/sda1"
+        Ebs: 
+          VolumeType: "gp2"
+          VolumeSize: "20"
+      ImageId: 
+        Fn::FindInMap: 
+          - "AWSAMIRegionMap"
+          - Ref: "AWS::Region"
+          - "HVM64"
+      KeyName: !Ref "EC2KeyPair"
+      SecurityGroupIds:
+      - !Ref EFSInstanceSecurityGroup
+      SubnetId:
+        !Join
+          - ''
+          - - Fn::ImportValue:
+                !Sub '${PrefixName}-private-subnet-id'
+      Tags:
+      - Key: Name
+        Value: things-graph-serverless-inference-ec2
+      UserData:
+        # All the steps to install dependencies and create the specific
+        # Greengrass core config and certificate/private key files.
+        Fn::Base64: !Sub 
+        - |
+          #!/bin/bash
+          sleep 120
+          sudo yum install zip jq gcc openssl-devel bzip2-devel libffi-devel amazon-efs-utils -y
+          sudo -u ec2-user  mkdir /home/ec2-user/efs
+          sudo  mount -t efs -o tls,accesspoint=${AccessPointResource} ${FileSystemResource}:/ /home/ec2-user/efs
+          # install python3.7
+          sudo  yum -y install python37
+          sudo  -u ec2-user  curl -O --output-dir /home/ec2-user/ https://bootstrap.pypa.io/get-pip.py
+          sudo  -u ec2-user  python3 /home/ec2-user/get-pip.py --user
+          sudo  -u ec2-user  python3 --version
+          sudo  -u ec2-user  pip3 --version
+          sudo  -u ec2-user  pip3 install --target /home/ec2-user/efs/lib/ torch numpy pillow boto3
+          sudo  -u ec2-user  export PYTHONPATH=/home/ec2-user/efs/lib/
+          sudo  -u ec2-user  mkdir -p /home/ec2-user/efs/models
+          sudo  -u ec2-user  echo "${ArtifactS3Bucket}/models/ml"
+          sudo  -u ec2-user  aws s3 cp s3://${ArtifactS3Bucket}/models/ml /home/ec2-user/efs/models --recursive
+          sudo  -u ec2-user  wget https://github.com/pytorch/vision/archive/v0.5.0.zip -P /home/ec2-user/
+          sudo  -u ec2-user  mkdir -p /home/ec2-user/efs/hub/checkpoints/
+          sudo  -u ec2-user  unzip /home/ec2-user/v0.5.0.zip -d /home/ec2-user/efs/hub
+          sudo  -u ec2-user  mv  /home/ec2-user/efs/hub/vision-0.5.0/ /home/ec2-user/efs/hub/pytorch_vision_v0.5.0
+          # Fixes bug for torchvision which is importing the wrong torch library
+          sudo  -u ec2-user sed -i 's/PY3/PY37/' /home/ec2-user/efs/hub/pytorch_vision_v0.5.0/torchvision/datasets/utils.py
+          sudo  -u ec2-user wget https://download.pytorch.org/models/resnet18-5c106cde.pth -P  /home/ec2-user/efs/hub/checkpoints/
+          # Signal the status from cfn-init
+          echo ${AWS::StackName} EfsMountEC2Instance --region ${AWS::Region}
+          /opt/aws/bin/cfn-signal -s true --stack ${AWS::StackName} --resource EfsMountEC2Instance --region ${AWS::Region}
+        - ArtifactS3Bucket:
+            Fn::ImportValue:
+              !Sub '${PrefixName}-artifact-s3-bucket-name'
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT20M
+    DependsOn:
+      - FileSystemResource
+      - AccessPointResource
+      - MountTargetResource1
+      - Ec2InstanceProfile
+      - EC2InstanceRole
+
+################################################################
+#                        LAMBDA SECTION                        #
+# In this Section we will define the Lambda functions that     #
+# will be used for this project                                #
+################################################################
+
+
+  CreateThingFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join ["-", [!Ref PrefixName, "create-thing"] ]
+      Description: Create thing, certificate, and policy, return cert and private key
+      Handler: create-iot-thing.handler
+      Runtime: python3.7
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 120
+      Code: 
+        S3Bucket:
+          !Join
+            - ''
+            - - Fn::ImportValue:
+                  !Sub '${PrefixName}-artifact-s3-bucket-name'
+        S3Key: 'things-graph-workshop.zip'
+
+  S3NewImageEventFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join ["-", [!Ref PrefixName, "s3-event"] ]
+      Description: triggers Things Graph when a new image is uploaded into S3
+      Handler: s3-new-image-event.handler
+      Runtime: python3.7
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 120
+      Code: 
+        S3Bucket:
+          !Join
+            - ''
+            - - Fn::ImportValue:
+                  !Sub '${PrefixName}-artifact-s3-bucket-name'
+        S3Key: 'things-graph-workshop.zip'
+      Environment:
+        Variables:
+          SQS_QUEUE_URL: !Ref ThingsGraphEventQueue
+          IOT_TOPIC: !Ref ReadGaugeTopicName
+          SNS_TOPIC_ARN: !Ref ThingsGraphSNSTopic
+
+
+  S3NewImageEventPermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      FunctionName: !GetAtt S3NewImageEventFunction.Arn
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn:
+        !Join
+          - '-'
+          - - !Sub "arn:aws:s3:::${PrefixName}-images" 
+            - !Ref 'AWS::AccountId'
+            - !Ref 'AWS::Region'
+
+
+  GGReadGaugeFunction:
+    # Lambda function deployed to Greengrass
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join ["-", [!Ref PrefixName, "read-gauge"] ]
+      Description: A Lambda that analyisis a gauge image and returns the reading
+      Handler: read-gauge.handler
+      Runtime: python3.7
+      # Role and Timeout not used when deployed to Lambda, but required for creation
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 120
+      Code:
+        S3Bucket:
+          !Join
+            - ''
+            - - Fn::ImportValue:
+                  !Sub '${PrefixName}-artifact-s3-bucket-name'
+        S3Key: 'things-graph-workshop.zip'
+
+
+  # Functions need to be versioned for use in a GreenGrass Group config
+  GGReadGaugeFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName : !GetAtt GGReadGaugeFunction.Arn
+  
+  #Function must have an alias that can be used by ThingsGraph Note TG cannot use $LATEST so we will create a seperate Latest alias    
+  GGReadGaugeFunctionAlias:
+    Type: AWS::Lambda::Alias
+    Properties: 
+      FunctionName: !GetAtt GGReadGaugeFunction.Arn
+      FunctionVersion: !GetAtt GGReadGaugeFunctionVersion.Version
+      Name: Latest
+
+  GGReadGaugeMLFunction:
+    # Lambda function deployed to Greengrass
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join ["-", [!Ref PrefixName, "read-gauge-ml"] ]
+      Description: A Lambda that analyisis a gauge image and returns the reading
+      Handler: read-gauge-ml.handler
+      Runtime: python3.7
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 120
+      MemorySize: 1024
+      VpcConfig:
+        SecurityGroupIds:
+        - !Ref EFSInstanceSecurityGroup
+        SubnetIds:
+          - !Join
+              - ''
+              - - Fn::ImportValue:
+                    !Sub '${PrefixName}-private-subnet-id'
+      FileSystemConfigs:
+        - Arn: !GetAtt AccessPointResource.Arn
+          LocalMountPath: /mnt/inference
+      Code:
+        S3Bucket:
+          !Join
+            - ''
+            - - Fn::ImportValue:
+                  !Sub '${PrefixName}-artifact-s3-bucket-name'
+        S3Key: 'things-graph-workshop.zip'
+      Environment:
+        Variables:
+          PYTHONPATH: /mnt/inference/lib
+          MODEL_FILE_NAME: /mnt/inference/models/model_dict.pt
+          MODEL_NAME: model_dict.pt
+          TORCH_HOME: /mnt/inference/
+    DependsOn:
+      - FileSystemResource
+      - AccessPointResource
+      - MountTargetResource1      
+
+
+  # Functions need to be versioned for use in a GreenGrass Group config
+  GGReadGaugeMLFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName : !GetAtt GGReadGaugeMLFunction.Arn
+  
+  #Function must have an alias that can be used by ThingsGraph Note TG cannot use $LATEST so we will create a seperate Latest alias    
+  GGReadGaugeMLFunctionAlias:
+    Type: AWS::Lambda::Alias
+    Properties: 
+      FunctionName: !GetAtt GGReadGaugeMLFunction.Arn
+      FunctionVersion: !GetAtt GGReadGaugeMLFunctionVersion.Version
+      Name: Latest      
+
+  GGPublishReadingFunction:
+    # Lambda function deployed to Greengrass
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join ["-", [!Ref PrefixName, "publish-reading"] ]
+      Description: A Lambda that publishes the readings from the gauge used for GreenGrass deployments
+      Handler: publish-reading.handler
+      Runtime: python3.7
+      # Role and Timeout not used when deployed to Lambda, but required for creation
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 120
+      Code:
+        S3Bucket:
+          !Join
+            - ''
+            - - Fn::ImportValue:
+                  !Sub '${PrefixName}-artifact-s3-bucket-name'
+        S3Key: 'things-graph-workshop.zip'
+        
+  LambdaProxyFunction:
+    # Lambda function deployed to Greengrass
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join ["-", [!Ref PrefixName, "lambda-proxy"] ]
+      Description: A Lambda function that inokes other lambda functions
+      Handler: lambda-proxy.handler
+      Runtime: python3.7
+      # Role and Timeout not used when deployed to Lambda, but required for creation
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 180
+      Code:
+        S3Bucket:
+          !Join
+            - ''
+            - - Fn::ImportValue:
+                  !Sub '${PrefixName}-artifact-s3-bucket-name'
+        S3Key: 'things-graph-workshop.zip'
+
+
+  # Functions need to be versioned for use in a GreenGrass Group config
+  LambdaProxyFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName : !GetAtt LambdaProxyFunction.Arn
+  
+  #Function must have an alias that can be used by ThingsGraph Note TG cannot use $LATEST so we will create a seperate Latest alias    
+  LambdaProxyFunctionAlias:
+    Type: AWS::Lambda::Alias
+    Properties: 
+      FunctionName: !GetAtt LambdaProxyFunction.Arn
+      FunctionVersion: !GetAtt LambdaProxyFunctionVersion.Version
+      Name: Latest
+
+
+
+  # Functions need to be versioned for use in a GreenGrass Group config
+  GGPublishReadingFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName : !GetAtt GGPublishReadingFunction.Arn
+  
+  #Function must have an alias that can be used by ThingsGraph Note TG cannot use $LATEST so we will create a seperate Latest alias    
+  GGPublishReadingFunctionAlias:
+    Type: AWS::Lambda::Alias
+    Properties: 
+      FunctionName: !GetAtt GGPublishReadingFunction.Arn
+      FunctionVersion: !GetAtt GGPublishReadingFunctionVersion.Version
+      Name: Latest
+
+  GGIdentifyGaugeTypeFunction:
+    #Placeholder function will be replaced by an ML model
+    # Lambda function deployed to Greengrass
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join ["-", [!Ref PrefixName, "identify-gauge-type"] ]
+      Description: A Lambda that analyisis a gauge image and identifies the type
+      Handler: identify-gauge-type.handler
+      Runtime: python3.7
+      # Role and Timeout not used when deployed to Lambda, but required for creation
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 120
+      Code:
+        S3Bucket:
+          !Join
+            - ''
+            - - Fn::ImportValue:
+                  !Sub '${PrefixName}-artifact-s3-bucket-name'
+        S3Key: 'things-graph-workshop.zip'
+      
+  # Functions need to be versioned for use in a GreenGrass Group config
+  GGIdentifyGaugeTypeFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName : !GetAtt GGIdentifyGaugeTypeFunction.Arn
+
+  #Function must have an alias that can be used by ThingsGraph Note TG cannot use $LATEST so we will create a seperate Latest alias    
+  GGIdentifyGaugeTypeFunctionAlias:
+    Type: AWS::Lambda::Alias
+    Properties: 
+      FunctionName: !GetAtt GGIdentifyGaugeTypeFunction.Arn
+      FunctionVersion: !GetAtt GGIdentifyGaugeTypeFunctionVersion.Version
+      Name: Latest
+  
+  GGReadSqsPayloadFunction:
+    # Lambda function deployed to Greengrass
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join ["-", [!Ref PrefixName, "read-sqs-payload"] ]
+      Description: A Lambda that read and converts an SQS message
+      Handler: read-sqs-payload.handler
+      Runtime: python3.7
+      # Role and Timeout not used when deployed to Lambda, but required for creation
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 120
+      Code:
+        S3Bucket:
+          !Join
+            - ''
+            - - Fn::ImportValue:
+                  !Sub '${PrefixName}-artifact-s3-bucket-name'
+        S3Key: 'things-graph-workshop.zip'
+
+  # Functions need to be versioned for use in a GreenGrass Group config
+  GGReadSqsPayloadFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName : !GetAtt GGReadSqsPayloadFunction.Arn
+  
+  #Function must have an alias that can be used by ThingsGraph Note TG cannot use $LATEST so we will create a seperate Latest alias    
+  GGReadSqsPayloadFunctionAlias:
+    Type: AWS::Lambda::Alias
+    Properties: 
+      FunctionName: !GetAtt GGReadSqsPayloadFunction.Arn
+      FunctionVersion: !GetAtt GGReadSqsPayloadFunctionVersion.Version
+      Name: Latest
+
+
+  GGButtonFunction:
+    # Lambda function deployed to Greengrass
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join ["-", [!Ref PrefixName, "button"] ]
+      Description: A Lambda that read and converts an SQS message
+      Handler: button.handler
+      Runtime: python3.7
+      # Role and Timeout not used when deployed to Lambda, but required for creation
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 120
+      Code:
+        S3Bucket:
+          !Join
+            - ''
+            - - Fn::ImportValue:
+                  !Sub '${PrefixName}-artifact-s3-bucket-name'
+        S3Key: 'things-graph-workshop.zip'
+      Environment:
+        Variables:
+          GPIO_PORT: 27
+
+  # Functions need to be versioned for use in a GreenGrass Group config
+  GGButtonFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName : !GetAtt GGButtonFunction.Arn
+  
+  #Function must have an alias that can be used by ThingsGraph Note TG cannot use $LATEST so we will create a seperate Latest alias    
+  GGButtonFunctionAlias:
+    Type: AWS::Lambda::Alias
+    Properties: 
+      FunctionName: !GetAtt GGButtonFunction.Arn
+      FunctionVersion: !GetAtt GGButtonFunctionVersion.Version
+      Name: Latest
+
+
+  GGLightFunction:
+    # Lambda function deployed to Greengrass
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join ["-", [!Ref PrefixName, "lights"] ]
+      Description: A Lambda that read and converts an SQS message
+      Handler: lights.handler
+      Runtime: python3.7
+      # Role and Timeout not used when deployed to Lambda, but required for creation
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 120
+      Code:
+        S3Bucket:
+          !Join
+            - ''
+            - - Fn::ImportValue:
+                  !Sub '${PrefixName}-artifact-s3-bucket-name'
+        S3Key: 'things-graph-workshop.zip'
+
+  # Functions need to be versioned for use in a GreenGrass Group config
+  GGLightFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName : !GetAtt GGLightFunction.Arn
+  
+  #Function must have an alias that can be used by ThingsGraph Note TG cannot use $LATEST so we will create a seperate Latest alias    
+  GGLightFunctionAlias:
+    Type: AWS::Lambda::Alias
+    Properties: 
+      FunctionName: !GetAtt GGLightFunction.Arn
+      FunctionVersion: !GetAtt GGLightFunctionVersion.Version
+      Name: Latest
+
+  
+  GGCameraFunction:
+    # Lambda function deployed to Greengrass
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join ["-", [!Ref PrefixName, "camera"] ]
+      Description: A Lambda that captures camera images
+      Handler: camera.handler
+      Runtime: python3.7
+      # Role and Timeout not used when deployed to Lambda, but required for creation
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 120
+      Code:
+        S3Bucket:
+          !Join
+            - ''
+            - - Fn::ImportValue:
+                  !Sub '${PrefixName}-artifact-s3-bucket-name'
+        S3Key: 'things-graph-workshop.zip'
+      Environment:
+        Variables:
+          IMAGE_PATH: /images
+
+  # Functions need to be versioned for use in a GreenGrass Group config
+  GGCameraFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName : !GetAtt GGCameraFunction.Arn
+  
+  #Function must have an alias that can be used by ThingsGraph Note TG cannot use $LATEST so we will create a seperate Latest alias    
+  GGCameraFunctionAlias:
+    Type: AWS::Lambda::Alias
+    Properties: 
+      FunctionName: !GetAtt GGCameraFunction.Arn
+      FunctionVersion: !GetAtt GGCameraFunctionVersion.Version
+      Name: Latest
+
+################################################################
+#                        IOT SECTION                           #
+# In this Section we will define the IoT Resources needed for  #
+# the workshop                                                 #
+################################################################
+
+  ThingsGraphWorkshopGGInstance:
+    # Resource creates thing, certificate key pair, and IoT policy
+    Type: Custom::IoTThing
+    Properties:
+      ServiceToken: !GetAtt CreateThingFunction.Arn
+      ThingName: !Join ["-", [!Ref PrefixName, "ec2-gg-core"] ]
+
+  IoTThingThingsGraphRPI:
+    # Resource creates thing, certificate key pair, and IoT policy
+    Type: Custom::IoTThing
+    Properties:
+      ServiceToken: !GetAtt CreateThingFunction.Arn
+      ThingName: !Join ["-", [!Ref PrefixName, "raspberrypi-gg-core"] ]
+  
+  IoTThingGaugeReader:
+    # Resource creates thing, certificate key pair, and IoT policy
+    Type: Custom::IoTThing
+    Properties:
+      ServiceToken: !GetAtt CreateThingFunction.Arn
+      ThingName: !Join ["-", [!Ref PrefixName, "gauge-reader"] ]
+
+  IoTThingButton:
+    # Resource creates thing, certificate key pair, and IoT policy
+    Type: Custom::IoTThing
+    Properties:
+      ServiceToken: !GetAtt CreateThingFunction.Arn
+      ThingName: !Join ["-", [!Ref PrefixName, "button"] ]
+
+  IoTThingCamera:
+    # Resource creates thing, certificate key pair, and IoT policy
+    Type: Custom::IoTThing
+    Properties:
+      ServiceToken: !GetAtt CreateThingFunction.Arn
+      ThingName: !Join ["-", [!Ref PrefixName, "camera"] ]
+
+
+  IoTRedLight1:
+    # Resource creates thing, certificate key pair, and IoT policy
+    Type: Custom::IoTThing
+    Properties:
+      ServiceToken: !GetAtt CreateThingFunction.Arn
+      ThingName: !Join ["-", [!Ref PrefixName, "red-light-1"] ]
+      
+  IoTRedLight2:
+    # Resource creates thing, certificate key pair, and IoT policy
+    Type: Custom::IoTThing
+    Properties:
+      ServiceToken: !GetAtt CreateThingFunction.Arn
+      ThingName: !Join ["-", [!Ref PrefixName, "red-light-2"] ] 
+
+  IoTRedLight3:
+    # Resource creates thing, certificate key pair, and IoT policy
+    Type: Custom::IoTThing
+    Properties:
+      ServiceToken: !GetAtt CreateThingFunction.Arn
+      ThingName: !Join ["-", [!Ref PrefixName, "red-light-3"] ] 
+
+  IoTGreenLight1:
+    # Resource creates thing, certificate key pair, and IoT policy
+    Type: Custom::IoTThing
+    Properties:
+      ServiceToken: !GetAtt CreateThingFunction.Arn
+      ThingName: !Join ["-", [!Ref PrefixName, "green-light-1"] ]
+
+  IoTGreenLight2:
+    # Resource creates thing, certificate key pair, and IoT policy
+    Type: Custom::IoTThing
+    Properties:
+      ServiceToken: !GetAtt CreateThingFunction.Arn
+      ThingName: !Join ["-", [!Ref PrefixName, "green-light-2"] ] 
+    
+  IoTGreenLight3:
+    # Resource creates thing, certificate key pair, and IoT policy
+    Type: Custom::IoTThing
+    Properties:
+      ServiceToken: !GetAtt CreateThingFunction.Arn
+      ThingName: !Join ["-", [!Ref PrefixName, "green-light-3"] ] 
+
+################################################################
+#                      GREENGRASS SECTION                      #
+# This Section contains all the GreenGrass related resources   #
+################################################################
+  ThingsGraphEC2GreengrassGroup:
+    Type: AWS::Greengrass::Group
+    Properties:
+      Name: !Join ["-", [!Ref PrefixName, "ec2-gg"] ]
+      RoleArn: !GetAtt GreengrassResourceRole.Arn
+      InitialVersion:
+        CoreDefinitionVersionArn: !Ref ThingsGraphEC2GreengrassCoreDefinitionVersion
+        FunctionDefinitionVersionArn: !GetAtt GGEC2FunctionDefinition.LatestVersionArn
+        LoggerDefinitionVersionArn: !Ref ThingsGraphLoggerDefinitionVersion
+        # ResourceDefinitionVersionArn: !Ref ThingsGraphEC2ResourceDefinitionVersion
+
+  ThingsGraphRPIGreengrassGroup:
+    Type: AWS::Greengrass::Group
+    Properties:
+      Name: !Join ["-", [!Ref PrefixName, "rpi-gg"] ]
+      RoleArn: !GetAtt GreengrassResourceRole.Arn
+      InitialVersion:
+        CoreDefinitionVersionArn: !Ref ThingsGraphRPIGreengrassCoreDefinitionVersion
+        FunctionDefinitionVersionArn: !GetAtt GGRPIFunctionDefinition.LatestVersionArn
+        LoggerDefinitionVersionArn: !Ref ThingsGraphLoggerDefinitionVersion
+        ResourceDefinitionVersionArn: !Ref ThingsGraphRPIResourceDefinitionVersion
+        SubscriptionDefinitionVersionArn: !Ref ThingsGraphRPISubscriptionDefinitionVersion
+
+
+
+  ThingsGraphEC2GreengrassCoreDefinition:
+    Type: AWS::Greengrass::CoreDefinition
+    Properties:
+      # use CoreName + "_Core" as "thingName"
+      Name: !Join ["-", [!Ref PrefixName,"ec2-gg-core"] ]
+  ThingsGraphEC2GreengrassCoreDefinitionVersion:
+    # Example of using GreengrassCoreDefinition referring to this
+    # "Version" resource
+    Type: AWS::Greengrass::CoreDefinitionVersion
+    Properties:
+      CoreDefinitionId: !Ref ThingsGraphEC2GreengrassCoreDefinition
+      Cores:
+        - Id: !Join ["-", [!Ref PrefixName, "ec2-gg-core"] ]
+          ThingArn: !Join
+                      - ":"
+                      - - "arn:aws:iot"
+                        - !Ref AWS::Region
+                        - !Ref AWS::AccountId
+                        - !Join
+                          - "/"
+                          - - "thing"
+                            - !Join ["-", [!Ref PrefixName, "ec2-gg-core"] ]
+          CertificateArn: !Join
+                            - ":"
+                            - - "arn:aws:iot"
+                              - !Ref AWS::Region
+                              - !Ref AWS::AccountId
+                              - !Join
+                                - "/"
+                                - - "cert"
+                                  - !GetAtt ThingsGraphWorkshopGGInstance.certificateId
+          SyncShadow: "false"
+
+  ThingsGraphRPIGreengrassCoreDefinition:
+    Type: AWS::Greengrass::CoreDefinition
+    Properties:
+      # use CoreName + "_Core" as "thingName"
+      Name: !Join ["-", [!Ref PrefixName,"raspberrypi-gg-core"] ]
+  ThingsGraphRPIGreengrassCoreDefinitionVersion:
+    # Example of using GreengrassCoreDefinition referring to this
+    # "Version" resource
+    Type: AWS::Greengrass::CoreDefinitionVersion
+    Properties:
+      CoreDefinitionId: !Ref ThingsGraphRPIGreengrassCoreDefinition
+      Cores:
+        - Id: !Join ["-", [!Ref PrefixName, "raspberrypi-gg-core"] ]
+          ThingArn: !Join
+                      - ":"
+                      - - "arn:aws:iot"
+                        - !Ref AWS::Region
+                        - !Ref AWS::AccountId
+                        - !Join
+                          - "/"
+                          - - "thing"
+                            - !Join ["-", [!Ref PrefixName, "raspberrypi-gg-core"] ]
+          CertificateArn: !Join
+                            - ":"
+                            - - "arn:aws:iot"
+                              - !Ref AWS::Region
+                              - !Ref AWS::AccountId
+                              - !Join
+                                - "/"
+                                - - "cert"
+                                  - !GetAtt IoTThingThingsGraphRPI.certificateId
+          SyncShadow: "false"
+
+  GGEC2FunctionDefinition:
+    # Example of using "InitialVersion" to not have to reference a separate
+    # "Version" resource
+    Type: 'AWS::Greengrass::FunctionDefinition'
+    Properties:
+      Name: FunctionDefinition
+      InitialVersion:
+        DefaultConfig:
+          Execution:
+            IsolationMode: GreengrassContainer
+        Functions:
+          - Id: !Join ["-", [!Ref PrefixName, "read-gauge"] ]
+            FunctionArn: !Ref GGReadGaugeFunctionVersion
+            FunctionConfiguration:
+              Pinned: 'false'
+              Executable: index.py
+              MemorySize: '524288'
+              Timeout: '300'
+              EncodingType: json
+              Environment:
+                Variables:
+                  CORE_NAME: !Ref PrefixName
+                AccessSysfs: 'false'
+                Execution:
+                  IsolationMode: GreengrassContainer
+          - Id: !Join ["-", [!Ref PrefixName, "identify-gauge-type"] ]
+            FunctionArn: !Ref GGIdentifyGaugeTypeFunctionVersion
+            FunctionConfiguration:
+              Pinned: 'false'
+              Executable: index.py
+              MemorySize: '32768'
+              Timeout: '300'
+              EncodingType: json
+              Environment:
+                Variables:
+                  CORE_NAME: !Ref PrefixName
+                AccessSysfs: 'false'
+                Execution:
+                  IsolationMode: GreengrassContainer
+          - Id: !Join ["-", [!Ref PrefixName, "read-sqs-payload"] ]
+            FunctionArn: !Ref GGReadSqsPayloadFunctionVersion
+            FunctionConfiguration:
+              Pinned: 'false'
+              Executable: index.py
+              MemorySize: '32768'
+              Timeout: '300'
+              EncodingType: json
+              Environment:
+                Variables:
+                  CORE_NAME: !Ref PrefixName
+                AccessSysfs: 'false'
+                Execution:
+                  IsolationMode: GreengrassContainer
+          - Id: !Join ["-", [!Ref PrefixName, "publish-reading"] ]
+            FunctionArn: !Ref GGPublishReadingFunctionVersion
+            FunctionConfiguration:
+              Pinned: 'false'
+              Executable: index.py
+              MemorySize: '32768'
+              Timeout: '300'
+              EncodingType: json
+              Environment:
+                Variables:
+                  CORE_NAME: !Ref PrefixName
+                AccessSysfs: 'false'
+                Execution:
+                  IsolationMode: GreengrassContainer
+
+
+  GGRPIFunctionDefinition:
+    # Example of using "InitialVersion" to not have to reference a separate
+    # "Version" resource
+    Type: 'AWS::Greengrass::FunctionDefinition'
+    Properties:
+      Name: FunctionDefinition
+      InitialVersion:
+        DefaultConfig:
+          Execution:
+            IsolationMode: GreengrassContainer
+        Functions:
+          - Id: !Join ["-", [!Ref PrefixName, "lights"] ]
+            FunctionArn: !Ref GGLightFunctionVersion
+            FunctionConfiguration:
+              Pinned: 'true'
+              Executable: index.py
+              MemorySize: '32768'
+              Timeout: '300'
+              EncodingType: json
+              Environment:
+                Variables:
+                  CORE_NAME: !Ref PrefixName
+                AccessSysfs: 'false'
+                Execution:
+                  IsolationMode: GreengrassContainer
+                ResourceAccessPolicies:
+                  - ResourceId: gpio
+                    Permission: rw
+          - Id: !Join ["-", [!Ref PrefixName, "button"] ]
+            FunctionArn: !Ref GGButtonFunctionVersion
+            FunctionConfiguration:
+              Pinned: 'true'
+              Executable: index.py
+              MemorySize: '32768'
+              Timeout: '300'
+              EncodingType: json
+              Environment:
+                Variables:
+                  CORE_NAME: !Ref PrefixName
+                  GPIO_PORT: 27
+                AccessSysfs: 'false'
+                Execution:
+                  IsolationMode: GreengrassContainer
+                ResourceAccessPolicies:
+                  - ResourceId: gpio
+                    Permission: rw
+          - Id: !Join ["-", [!Ref PrefixName, "camera"] ]
+            FunctionArn: !Ref GGCameraFunctionVersion
+            FunctionConfiguration:
+              Pinned: 'true'
+              Executable: index.py
+              MemorySize: '32768'
+              Timeout: '300'
+              EncodingType: json
+              Environment:
+                Variables:
+                  CORE_NAME: !Ref PrefixName
+                  IMAGE_PATH: '/images'
+                AccessSysfs: 'false'
+                Execution:
+                  IsolationMode: GreengrassContainer
+                ResourceAccessPolicies:
+                  - ResourceId: vchiq
+                    Permission: rw
+                  - ResourceId: vcsm
+                    Permission: rw
+                  - ResourceId: imageStore
+                    Permission: rw
+          - Id: !Join ["-", [!Ref PrefixName, "read-gauge"] ]
+            FunctionArn: !Ref GGReadGaugeFunctionVersion
+            FunctionConfiguration:
+              Pinned: 'false'
+              Executable: index.py
+              MemorySize: '524288'
+              Timeout: '300'
+              EncodingType: json
+              Environment:
+                Variables:
+                  CORE_NAME: !Ref PrefixName
+                AccessSysfs: 'false'
+                Execution:
+                  IsolationMode: GreengrassContainer
+          - Id: !Join ["-", [!Ref PrefixName, "identify-gauge-type"] ]
+            FunctionArn: !Ref GGIdentifyGaugeTypeFunctionVersion
+            FunctionConfiguration:
+              Pinned: 'false'
+              Executable: index.py
+              MemorySize: '32768'
+              Timeout: '300'
+              EncodingType: json
+              Environment:
+                Variables:
+                  CORE_NAME: !Ref PrefixName
+                AccessSysfs: 'false'
+                Execution:
+                  IsolationMode: GreengrassContainer
+          - Id: !Join ["-", [!Ref PrefixName, "read-sqs-payload"] ]
+            FunctionArn: !Ref GGReadSqsPayloadFunctionVersion
+            FunctionConfiguration:
+              Pinned: 'false'
+              Executable: index.py
+              MemorySize: '32768'
+              Timeout: '300'
+              EncodingType: json
+              Environment:
+                Variables:
+                  CORE_NAME: !Ref PrefixName
+                AccessSysfs: 'false'
+                Execution:
+                  IsolationMode: GreengrassContainer
+          - Id: !Join ["-", [!Ref PrefixName, "publish-reading"] ]
+            FunctionArn: !Ref GGPublishReadingFunctionVersion
+            FunctionConfiguration:
+              Pinned: 'false'
+              Executable: index.py
+              MemorySize: '32768'
+              Timeout: '300'
+              EncodingType: json
+              Environment:
+                Variables:
+                  CORE_NAME: !Ref PrefixName
+                AccessSysfs: 'false'
+                Execution:
+                  IsolationMode: GreengrassContainer
+
+
+
+  ThingsGraphLoggerDefinition:
+    Type: 'AWS::Greengrass::LoggerDefinition'
+    Properties:
+      Name: ThingsGraphLoggerDefinition
+
+  ThingsGraphLoggerDefinitionVersion:
+    Type: 'AWS::Greengrass::LoggerDefinitionVersion'
+    Properties:
+      LoggerDefinitionId: !Ref ThingsGraphLoggerDefinition
+      Loggers:
+        - Id: ThingsGraphSystemLogger
+          Type: FileSystem
+          Component: GreengrassSystem
+          Level: DEBUG
+          Space: '128'
+        - Id: ThingsGraphLambdaLogger
+          Type: FileSystem
+          Component: Lambda
+          Level: DEBUG
+          Space: '128'
+
+
+################################################################
+#               GreenGrass Resource SECTION                    #
+# This Section contains all the GReenGrass related resources   #
+################################################################
+  ThingsGraphEC2ResourceDefinition:
+    Type: AWS::Greengrass::ResourceDefinition
+    Properties: 
+      Name: ResourceDefinition
+
+  ThingsGraphRPIResourceDefinition:
+    Type: AWS::Greengrass::ResourceDefinition
+    Properties: 
+      Name: ResourceDefinition
+
+  ThingsGraphRPIResourceDefinitionVersion:
+    Type: AWS::Greengrass::ResourceDefinitionVersion
+    Properties:
+      ResourceDefinitionId: !Ref ThingsGraphRPIResourceDefinition
+      Resources:
+        - Id: vchiq
+          Name: VideoCoreInterface
+          ResourceDataContainer:
+            LocalDeviceResourceData:
+              SourcePath: /dev/vchiq
+              GroupOwnerSetting:
+                AutoAddGroupOwner: true
+        - Id: imageStore
+          Name: imageStore
+          ResourceDataContainer:
+            LocalVolumeResourceData:
+              SourcePath: /images
+              DestinationPath: /images
+              GroupOwnerSetting:
+                AutoAddGroupOwner: true
+        - Id: vcsm
+          Name: VideoCoreSharedMemory
+          ResourceDataContainer:
+            LocalDeviceResourceData:
+              SourcePath: /dev/vcsm
+              GroupOwnerSetting:
+                AutoAddGroupOwner: true
+        - Id: gpio
+          Name: GPIOPortAccess
+          ResourceDataContainer:
+            LocalDeviceResourceData:
+              SourcePath: /dev/gpiomem
+              GroupOwnerSetting:
+                AutoAddGroupOwner: true
+
+
+################################################################
+#               GreenGrass Subscription SECTION                #
+# This Section contains all the GReenGrass related subscriptions#
+################################################################
+
+  ThingsGraphRPISubscriptionDefinition:
+    Type: 'AWS::Greengrass::SubscriptionDefinition'
+    Properties:
+      Name: ThingsGraphRPISubscriptionDefinition
+
+  ThingsGraphRPISubscriptionDefinitionVersion:
+    Type: 'AWS::Greengrass::SubscriptionDefinitionVersion'
+    Properties:
+      SubscriptionDefinitionId: !Ref ThingsGraphRPISubscriptionDefinition
+      Subscriptions:
+        - Id: lights
+          Source: !Join 
+            - ':'
+            - - 'arn:aws:iot'
+              - !Ref 'AWS::Region'
+              - !Ref 'AWS::AccountId' 
+              - !Join
+                - "/"
+                - - "thing"
+                  - !Join ["-", [!Ref PrefixName, "raspberrypi-gg-core"] ]
+          Subject: things-graph-workshop/lights
+          Target: !Ref GGLightFunctionVersion
+        - Id: button
+          Source: !Ref GGButtonFunctionVersion
+          Subject: things-graph-workshop/button/clickEvent
+          Target: !Join 
+            - ':'
+            - - 'arn:aws:iot'
+              - !Ref 'AWS::Region'
+              - !Ref 'AWS::AccountId' 
+              - !Join
+                - "/"
+                - - "thing"
+                  - !Join ["-", [!Ref PrefixName, "raspberrypi-gg-core"] ]
+          
+
+
+################################################################
+#                        SQS SECTION                          #
+# This Section contains all the SQS related resources         #
+################################################################
+
+  ThingsGraphEventQueue:
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName:
+        Fn::Join:
+          - '-'
+          - - Ref: PrefixName
+            - 'queue'
+
+
+################################################################
+#                        SNS SECTION                          #
+# This Section contains all the SNS related resources         #
+################################################################
+
+  ThingsGraphSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties: 
+      TopicName:
+        Fn::Join:
+          - '-'
+          - - Ref: PrefixName
+            - 'topic'
+            
+################################################################
+#                        ROLE SECTION                          #
+# This Section contains all the Role related resources         #
+################################################################
+  ReadGaugeRuleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 
+        Fn::Join:
+          - '-'
+          - - Ref: PrefixName
+            - 'ReadGaugeRuleRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - 'iot.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+
+        # Posts to RawMetricsDeliveryStream
+        - PolicyName: 'IoTTopicRuleFirehosePolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              Effect: Allow
+              Action:
+                - firehose:DescribeDeliveryStream
+                - firehose:ListDeliveryStreams
+                - firehose:PutRecord
+                - firehose:PutRecordBatch
+              Resource: '*'
+        - PolicyName: 'IoTTopicRuleElasticSearchPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              Effect: Allow
+              Action:
+                - es:ESHttpPut
+              Resource: '*'
+        - PolicyName: 'IoTTopicRuleS3Policy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource: '*'
+            
+  LambdaExecutionRole:
+    # Role used by CloudFormation created Lambda functions, used by the custom
+    # resource functions to perform their objectives.
+    # Overly permissive for iot:* and greengrass:* to reduce Statement complexity
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 
+        Fn::Join:
+          - '-'
+          - - Ref: PrefixName
+            - 'LambdaExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName:
+          Fn::Join: 
+            - '-'
+            - - Ref: PrefixName
+              - 'LambdaExecution'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+          - Effect: Allow
+            Action:
+            - iot:*
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - greengrass:*
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - ec2:DescribeReservedInstancesOfferings
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - sqs:*
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - sns:Publish
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - iam:CreateRole
+            - iam:AttachRolePolicy
+            - iam:GetRole
+            - iam:DeleteRole
+            - iam:PassRole
+            Resource: !Join ["", ["arn:aws:iam::", !Ref "AWS::AccountId", ":role/greengrass_cfn_", !Ref "AWS::StackName", "_ServiceRole"] ]
+          - Effect: Allow
+            Action:
+            - s3:*
+            Resource: "*"
+                  # - !Sub '${ImagesBucket.Arn}'
+                  # - !Sub '${ImagesBucket.Arn}/'
+                  # - !Sub '${ImagesBucket.Arn}/*'
+      - PolicyName:
+          Fn::Join: 
+            - '-'
+            - - Ref: PrefixName
+              - 'LambdaVPCAccessExecutionRole'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - ec2:CreateNetworkInterface
+            - ec2:DescribeNetworkInterfaces
+            - ec2:DeleteNetworkInterface
+            Resource: "*"
+      - PolicyName:
+          Fn::Join: 
+            - '-'
+            - - Ref: PrefixName
+              - 'AmazonElasticFileSystemClientFullAccess'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - elasticfilesystem:ClientMount
+            - elasticfilesystem:ClientRootAccess
+            - elasticfilesystem:ClientWrite
+            - elasticfilesystem:DescribeMountTargets
+            Resource: "*"
+
+  GreengrassResourceRole:
+    # Role for deployed Lambda functions to a Greengrass core to call other
+    # AWS services directly
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 
+        Fn::Join:
+          - '-'
+          - - Ref: PrefixName
+            - 'GreengrassResourceRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: greengrass.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName:
+          Fn::Join: 
+            - '-'
+            - - Ref: PrefixName
+              - 'GreenGrass'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+          - Effect: Allow
+            Action:
+            - iot:*
+            - sqs:*
+            - sns:*
+            - s3:*
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - lambda:InvokeFunction
+            Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:things-graph-workshop-*'
+
+
+  ThingsGraphResourceRole:
+    # Role for deployed Lambda functions to a Greengrass core to call other
+    # AWS services directly
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 
+        Fn::Join:
+          - '-'
+          - - Ref: PrefixName
+            - 'ThingsGraphResourceRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: iotthingsgraph.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName:
+          Fn::Join: 
+            - '-'
+            - - Ref: PrefixName
+              - 'ThingsGraph'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+          - Effect: Allow
+            Action:
+            - iot:*
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - lambda:*
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - sqs:*
+            - sns:*
+            Resource: "*"
+        
+  EC2InstanceRole:
+    # Role for EC2 instance used to prepare ML model for execution
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: 
+        Fn::Join:
+          - '-'
+          - - Ref: PrefixName
+            - 'EC2ResourceRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: ec2.amazonaws.com
+          Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: Ec2InstancePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 's3:*'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                  - 'logs:CreateLogGroup'
+                Resource: arn:aws:logs:*:*:*
+              - Effect: Allow
+                Action:
+                  - 'ec2:AssociateAddress'
+                  - 'lec2:DescribeAddresses'
+                Resource: '*'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  Ec2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:  
+        - 
+          Ref: "EC2InstanceRole"
+
+################################################################
+#                        OUTPUT SECTION                        #
+# This Section contains all temapltes outputs                  #
+################################################################
+Outputs:
+  # Emit values needed for deployment status
+  S3NewImageEventArn:
+    Description: "New image notification function"
+    Value: !GetAtt S3NewImageEventFunction.Arn
+    Export:
+      Name: !Sub "${PrefixName}-s3-image-bucket-arn"
+  ThingGraphRoleArn:
+    Description: "The Arn of the role that the things graph deployment uses do run"
+    Value: !GetAtt ThingsGraphResourceRole.Arn
+    Export:
+      Name: !Sub "${PrefixName}-things-graph-role-arn"
+  EC2PublicIP:
+    Description: "The Public IP address of the EC2 instance running Greengrass"
+    Value: !GetAtt ThingsGraphGreengrassInstance.PublicIp
+    Export:
+      Name: !Sub "${PrefixName}-ec2-public-ip"
+  FileSystemID:
+    Description: File system ID
+    Value: !Ref FileSystemResource
+    Export:
+      Name: !Sub "${AWS::StackName}-FileSystemID"
+  AccessPointID:
+    Description: Access Point ID
+    Value: !Ref AccessPointResource
+    Export:
+      Name: !Sub "${AWS::StackName}-AccessPointID"

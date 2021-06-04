@@ -1,0 +1,225 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "This is a Things Graph workshop template to setup our infrastructure resources"
+################################################################
+#                        PARAMETER SECTION                     #
+# In this Section we will define the necessary Parameters      #
+# needed for the workshop                                      #
+################################################################
+Parameters:
+  PrefixName:
+    Type: String
+    MinLength: 1
+    Default: "things-graph-workshop"
+    Description: "The prefix we will use for the resources created in this project"
+
+    
+Resources:
+
+################################################################
+#                        Cloud9 SECTION                        #
+# This Section contains the Resources for setting up Cloud9    #
+################################################################
+  ThingsGraphC9Environment:
+    Type: "AWS::Cloud9::EnvironmentEC2"
+    Properties:
+      Description: This is a Dev enironment for Things Graph Workshop
+      Name:
+        Fn::Join: 
+          - '-'
+          - - Ref: PrefixName
+            - 'C9'
+      InstanceType: m5.large
+
+      SubnetId: !Ref publicSubnet1
+      AutomaticStopTimeMinutes: 120
+
+################################################################
+#                        S3 Bucket SECTION                     #
+# This Section contains all the S3 related resources           #
+################################################################
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName :
+        Fn::Join: 
+          - '-'
+          - - Ref: PrefixName
+            - 'artifacts'
+            - !Ref 'AWS::AccountId'
+            - !Ref 'AWS::Region'
+      LifecycleConfiguration:
+        Rules:
+        - Id: ExpirationRule
+          Status: Enabled
+          ExpirationInDays: '2'
+
+
+################################################################
+#                        NETWORK SECTION                       #
+# This Section contains all the networking resources           #
+################################################################
+  # create VPC
+  ThingsGraphVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+        CidrBlock: 172.32.0.0/16
+        EnableDnsSupport: 'true'
+        EnableDnsHostnames: 'true'
+        Tags:
+        - Key: Name
+          Value: ThingsGraphVPC
+
+
+  publicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ThingsGraphVPC
+      CidrBlock: 172.32.0.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs 
+          Ref: 'AWS::Region'
+      Tags:
+      - Key: Name
+        Value: publicSubnet1
+        
+  privateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ThingsGraphVPC
+      CidrBlock: 172.32.16.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs 
+          Ref: 'AWS::Region'
+      Tags:
+      - Key: Name
+        Value: privateSubnet1
+
+
+  # create and attach internet gateway
+  # Internet gatewat is required
+  TGWorkshopInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: TGWorkshopInternetGateway
+
+  TGWorkshopAttachInternetGateway:
+    DependsOn: TGWorkshopInternetGateway
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref ThingsGraphVPC
+      InternetGatewayId: !Ref TGWorkshopInternetGateway
+
+  # create public route table
+  TGWorkshopPublicRouteTable:
+    DependsOn: TGWorkshopAttachInternetGateway
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ThingsGraphVPC
+      Tags:
+      - Key: Name
+        Value: TGWorkshopPublicRouteTable
+
+    # public subnets get attached to CustomRouteTable
+  PublicSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref publicSubnet1
+      RouteTableId: !Ref TGWorkshopPublicRouteTable
+
+  RouteToInternet:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref TGWorkshopPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref TGWorkshopInternetGateway
+   
+  # Configure NAT for private Subnet
+  NATEIP:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+      
+  NATGateway:    
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      AllocationId: !GetAtt 'NATEIP.AllocationId'
+      SubnetId: !Ref publicSubnet1
+      Tags:
+      - Key: Name
+        Value: TGWorkshopNATGW
+      
+  # Create private route table
+  TGWorkshopPrivateRouteTable:
+    DependsOn: NATGateway
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ThingsGraphVPC
+      Tags:
+      - Key: Name
+        Value: TGWorkshopPrivateRouteTable
+        
+  # Prvate subnets get attached to CustomRouteTable
+  PrivateSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref privateSubnet1
+      RouteTableId: !Ref TGWorkshopPrivateRouteTable
+      
+  PrivateSubnetRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref TGWorkshopPrivateRouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      NatGatewayId: !Ref NATGateway
+      
+
+################################################################
+#                        OUTPUT SECTION                        #
+# This Section contains all templates  outputs                 #
+################################################################
+Outputs:
+  # Emit values needed for deployment status
+  ArtifactBucketArn:
+    Description: "The ARN of the artifact bucket"
+    Value: !GetAtt ArtifactBucket.Arn
+    Export:
+      Name: !Sub "${PrefixName}-artifact-s3-bucket-arn"
+  ArtifactBucketName:
+    Description: "New image notification function"
+    Value: 
+      Fn::Join: 
+          - '-'
+          - - Ref: PrefixName
+            - 'artifacts'
+            - !Ref 'AWS::AccountId'
+            - !Ref 'AWS::Region'
+    Export:
+      Name: !Sub "${PrefixName}-artifact-s3-bucket-name"
+  Prefix:
+    Description: "The prefix of the project, this will be used by all CF stacks"
+    Value: !Ref PrefixName
+    Export:
+      Name: !Sub "${PrefixName}-prefix"
+  VPCID:
+    Description: "The VPC ID that our GreenGrass will be deployed on"
+    Value: !Ref ThingsGraphVPC
+    Export:
+      Name: !Sub "${PrefixName}-vpc-id"
+  SubnetID:
+    Description: "The Subnet ID that our GreenGrass will be deployed on"
+    Value: !Ref publicSubnet1
+    Export:
+      Name: !Sub "${PrefixName}-subnet-id"
+  PrivateSubnetID:
+    Description: "The Private Subnet ID that our Ml model will be deployed on"
+    Value: !Ref privateSubnet1
+    Export:
+      Name: !Sub "${PrefixName}-private-subnet-id"
+  

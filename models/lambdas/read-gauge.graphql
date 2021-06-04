@@ -1,0 +1,68 @@
+{
+# The readGaugeResponseStructure state defines the structure of the readGaugeAction response.
+type readGaugeResponseStructure @stateType(id: "urn:tdm:regionName/acctID/default:State:readGaugeResponseStructure") {
+    gaugeReading: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    errorCode: Int @property(id: "urn:tdm:aws:Property:Int32"),
+    errorMessage : String @property(id: "urn:tdm:aws:Property:String")
+}
+
+# Property representing the readGaugeResponseStructure state. 
+type readGaugeResponse @propertyType(id: "urn:tdm:regionName/acctID/default:property:readGaugeResponse" 
+    instanceOf: "urn:tdm:regionName/acctID/default:State:readGaugeResponseStructure") {ignore:void}
+
+# The readGaugeAction takes a string as input and returns the number of unique words and the 
+# most frequently used word in the string.
+type readGaugeAction @actionType(id: "urn:tdm:regionName/acctID/default:action:readGaugeAction") {
+    s3ObjectUrl : String @property(id: "urn:tdm:aws:property:String"),
+    s3ObjectKey : String @property(id: "urn:tdm:aws:property:String"),
+    s3BucketName : String @property(id: "urn:tdm:aws:property:String"),
+    min_angle : Int @property(id: "urn:tdm:aws:property:Int32"),
+    max_angle : Int @property(id: "urn:tdm:aws:property:Int32"),
+    min_value : Int @property(id: "urn:tdm:aws:property:Int32"),
+    max_value : Int @property(id: "urn:tdm:aws:property:Int32"),
+    units : String @property(id: "urn:tdm:aws:property:String"),
+    return : readGaugeResponse @property(id: "urn:tdm:regionName/acctID/default:property:readGaugeResponse")
+}
+
+# The readGauge capability.
+type readGaugeCapability @capabilityType(id: "urn:tdm:regionName/acctID/default:capability:readGaugeCapability") {
+    readGauge : readGaugeAction @action(id: "urn:tdm:regionName/acctID/default:action:readGaugeAction")
+}
+
+# Service definition for readGauge. It's implemented as an AWS IoT Greengrass Lambda function.
+query readGauge @service(id: "urn:tdm:regionName/acctID/default:Service:TGWorkshopReadGaugeLambda") {
+    AwsLambda {
+            readGaugeCapability(id: "urn:tdm:regionName/acctID/default:capability:readGaugeCapability") {
+                Action(name: "readGauge") {
+                    params {
+                        param(name: "s3ObjectUrl", property:"urn:tdm:aws:property:String"),
+                        param(name: "s3ObjectKey", property:"urn:tdm:aws:property:String"),
+                        param(name: "s3BucketName", property:"urn:tdm:aws:property:String"),
+                        param(name: "min_angle", property:"urn:tdm:aws:property:Int32"),
+                        param(name: "max_angle", property:"urn:tdm:aws:property:Int32"),
+                        param(name: "min_value", property:"urn:tdm:aws:property:Int32"),
+                        param(name: "max_value", property:"urn:tdm:aws:property:Int32"),
+                        param(name: "units", property:"urn:tdm:aws:property:String")
+                    }
+                    InvokeGreengrassLambda {
+                        Request(arn: "$macro(arn:aws:lambda:${systemConfig.awsRegion}:${systemConfig.awsAccountId}:function:things-graph-workshop-read-gauge:Latest)") {
+                            params {
+                                param(name: "s3ObjectUrl", property:"urn:tdm:aws:property:String", value: "${s3ObjectUrl.value}"),
+                                param(name: "s3ObjectKey", property:"urn:tdm:aws:property:String", value: "${s3ObjectKey.value}"),
+                                param(name: "s3BucketName", property:"urn:tdm:aws:property:String", value: "${s3BucketName.value}"),
+                                param(name: "min_angle", property:"urn:tdm:aws:property:Int32", value: "${min_angle.value}"),
+                                param(name: "max_angle", property:"urn:tdm:aws:property:Int32", value: "${max_angle.value}"),
+                                param(name: "min_value", property:"urn:tdm:aws:property:Int32", value: "${min_value.value}"),
+                                param(name: "max_value", property:"urn:tdm:aws:property:Int32", value: "${max_value.value}"),
+                                param(name: "units", property:"urn:tdm:aws:property:String", value: "${units.value}")
+                            }
+                        }
+                        Response {
+                            responsePayload(property: "urn:tdm:regionName/acctID/default:property:readGaugeResponse")
+                        }
+                    }
+                }
+            }
+        }
+}
+}
